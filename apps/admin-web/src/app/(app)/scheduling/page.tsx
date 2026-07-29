@@ -67,9 +67,12 @@ export default async function SchedulingPage({
       start: v.scheduled_start,
       end: v.scheduled_end,
       assigned: v.caregiver_id !== null,
-      label: `${timeOnly(v.scheduled_start)} — ${
-        v.caregiver_id ? "assigned" : "UNFILLED"
-      } · ${v.service_type_code ?? "no service code"}`,
+      label: `${timeOnly(v.scheduled_start)}–${timeOnly(v.scheduled_end)}`,
+      detail: [
+        v.caregiver_id ? "Caregiver assigned" : "Unfilled",
+        v.service_type_code ?? "No service code",
+        v.payer_type?.replace(/_/g, " ") ?? "No payer",
+      ].join(" · "),
     }));
 
     return (

@@ -30,7 +30,7 @@ from careos.core.security import Principal
 from careos.modules.agency.models import Role
 from careos.modules.compliance_rules import engine as rules_engine
 from careos.modules.credentialing.models import Caregiver
-from careos.modules.scheduling import matching
+from careos.modules.scheduling import exceptions_service, matching
 from careos.modules.scheduling import service as scheduling_service
 from careos.modules.scheduling.models import (
     CaptureMethod,
@@ -341,3 +341,55 @@ async def suggested_caregivers(
         },
     )
     return [schemas.CaregiverSuggestionOut(**s.as_payload()) for s in suggestions]
+
+
+@router.get("/compliance-exceptions", response_model=list[schemas.ComplianceExceptionOut])
+async def list_compliance_exceptions(
+    principal: Principal = Depends(
+        requires(Role.owner_admin, Role.scheduler, Role.clinical_supervisor, Role.auditor)
+    ),
+    session: AsyncSession = Depends(db_session),
+    include_resolved: bool = Query(default=False),
+    severity: str | None = Query(default=None),
+) -> list[schemas.ComplianceExceptionOut]:
+    """The exception queue (US-1.4.6).
+
+    Most severe first, then oldest first within a severity — an exception that has sat for a
+    week is a worse problem than one raised an hour ago, and newest-first would bury it.
+    """
+    rows = await exceptions_service.list_exceptions(
+        session, include_resolved=include_resolved, severity=severity
+    )
+    return [schemas.ComplianceExceptionOut.model_validate(r) for r in rows]
+
+
+@router.get("/compliance-exceptions/summary", response_model=schemas.ExceptionSummaryOut)
+async def compliance_exception_summary(
+    principal: Principal = Depends(
+        requires(Role.owner_admin, Role.scheduler, Role.clinical_supervisor, Role.auditor)
+    ),
+    session: AsyncSession = Depends(db_session),
+) -> schemas.ExceptionSummaryOut:
+    summary = await exceptions_service.summarize(session)
+    return schemas.ExceptionSummaryOut(
+        total_open=summary.total_open, by_severity=summary.by_severity
+    )
+
+
+@router.post(
+    "/compliance-exceptions/{exception_id}/resolve",
+    response_model=schemas.ComplianceExceptionOut,
+)
+async def resolve_compliance_exception(
+    exception_id: uuid.UUID,
+    payload: schemas.ResolveException,
+    principal: Principal = Depends(
+        requires(Role.owner_admin, Role.scheduler, Role.clinical_supervisor)
+    ),
+    session: AsyncSession = Depends(db_session),
+) -> schemas.ComplianceExceptionOut:
+    """Resolve an exception — an audited act by a named person, not a silent dismissal."""
+    resolved = await exceptions_service.resolve_exception(
+        session, principal=principal, exception_id=exception_id, note=payload.note
+    )
+    return schemas.ComplianceExceptionOut.model_validate(resolved)

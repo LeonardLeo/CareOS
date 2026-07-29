@@ -30,7 +30,9 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools>=68"]
+# >=83 for PYSEC-2026-3447: below it, MANIFEST.in exclusions can be bypassed by Unicode
+# normalization and pack a file meant to stay out of an sdist into one.
+requires = ["setuptools>=83.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -52,6 +54,10 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
+# `services/api` on sys.path, so `from tests.conftest import ...` resolves the same way under
+# a bare `pytest` as under `python -m pytest`. Without it only the latter works — pytest puts
+# `tests/` itself on the path when the directory is not a package, and CI runs the bare form.
+pythonpath = ["."]
 filterwarnings = ["error::DeprecationWarning:careos.*"]
 
 [tool.mypy]

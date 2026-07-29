@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-29
-**Assessed by:** build increment 5 (admin app information design)
+**Assessed by:** build increment 6 (client management, exception queue, CI repair)
 
 ---
 
@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 194 passing against a real PostgreSQL instance; admin web app type-checks and builds |
+| Tests | 203 passing against a real PostgreSQL instance; admin web app type-checks and builds |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **Admin web app built and working.** No caregiver mobile app |
 | Compliance review | **Not performed** |
@@ -58,6 +58,21 @@ ranking, ambient extraction, and claim scrubbing are all core to the roadmap.
 - **Idempotency.** `Idempotency-Key` enforced on side-effecting mutations, with replay,
   body-mismatch rejection, and in-flight conflict handling.
 - **Error envelope.** Single shape for every failure, including FastAPI validation errors.
+- **CI.** Seven required jobs (`.github/workflows/ci.yml`). Three of them were failing on the
+  first pull request for reasons worth recording, because each was invisible locally:
+  - The repository's Python `.gitignore` carried an unanchored `lib/`, which matches a
+    directory of that name at any depth and so excluded `apps/admin-web/src/lib` — the web
+    app's API client and session module — from the repository entirely. It built locally,
+    where the files were on disk, and failed the type-check here, where they had never been
+    committed. The packaging rules are now anchored to the repo root, and a job step asserts
+    against `git check-ignore` that no source path is excluded. That check reads the ignore
+    *rules*, not the working tree: a clean checkout does not contain the missing files, so
+    anything that looks for them on disk passes vacuously.
+  - `pytest` and `python -m pytest` disagreed. With `tests/` not a package, the bare form puts
+    `tests/` itself on `sys.path` rather than its parent, so `from tests.conftest import ...`
+    fails at collection. CI runs the bare form. `pythonpath = ["."]` makes both work.
+  - `pip-audit` flagged PYSEC-2026-3447 in the runner's setuptools. Remediated by requiring
+    `setuptools>=83.0.0` for the build rather than by excusing the finding.
 
 ### Scheduling and EVV
 - Clients, care plans, RRULE-based visit generation (idempotent over overlapping windows).
@@ -124,9 +139,28 @@ ordinal-ramp funnel for pipeline stages, a length-comparable bar for match score
 for schedule occupancy — and the palette was validated for colour-vision separation against
 both surfaces rather than picked by eye. The access token is held in an httpOnly cookie and never reaches page
 JavaScript, because this surface renders PHI. Screens: dashboard, scheduling board with gap
-queue and ranked suggestions (Flow A), recruiting funnel and applicant pipeline, credentialing
-renewal queue, compliance review standing. Verified end to end against a live API — assigning
-a caregiver through the UI moves the visit out of the gap queue.
+queue and ranked suggestions (Flow A), client roster with intake and care-plan authoring,
+compliance-exception queue, recruiting funnel and applicant pipeline, credentialing renewal
+queue, compliance review standing. Verified end to end against a live API — assigning a
+caregiver through the UI moves the visit out of the gap queue, and admitting a client then
+authoring a plan produces visits that appear on the scheduling timeline.
+
+Three things were found only by driving the flows rather than by reading the code. A care
+plan's id existed nowhere but the query string of the redirect that created it, so returning to
+a client later left no way to generate further visits from a plan that already existed —
+`GET /v1/clients/{id}/care-plans` closes that. `CarePlanOut` then omitted
+`visit_frequency_rule`, so the generate-visits form could not show the recurrence the visits
+would follow, and with two plans on a client gave no indication which one it was about to use;
+both are now on screen above the form. And the schedule timeline encoded each visit's detail in
+a `title` attribute, which a keyboard user never sees; marks are now buttons with a tooltip on
+focus as well as hover, and a hit area padded past the 2px bar.
+
+### Compliance-exception queue
+`06_Compliance_and_Regulatory_Requirements.md` Section 4 requires exceptions be worked, not
+just recorded. Open findings are listed severity-first — critical, then warning, then info,
+oldest first inside each band, so the queue reads top-down as a work order — with a resolution
+that writes `compliance_exception_resolved` to the audit log against the resolving user. The
+nav carries the open count, so an unattended queue is visible without opening it.
 
 ### Compliance operations
 `06_Compliance_and_Regulatory_Requirements.md` Section 9 sets a review cadence, and
@@ -192,8 +226,9 @@ These are honest placeholders, not oversights:
 
 1. **Caregiver mobile app** with a genuine offline store, since clock-in is the
    highest-stakes surface and cannot be validated without a real client.
-2. **Extend the admin app**: client and care-plan management, user administration, and the
-   compliance-exception queue as a first-class screen rather than dashboard tiles.
+2. **User administration in the admin app.** Client management, care-plan authoring, and the
+   compliance-exception queue now exist as first-class screens; inviting a user and changing a
+   role still require calling the API directly, even though both endpoints exist.
 3. **First real EVV integration** for one state, end to end through that vendor's sandbox.
    This is the assumption most likely to be wrong, and the cheapest time to find out is now.
 4. **Engage compliance counsel**, and run the bias audit on real outcomes before the ranking

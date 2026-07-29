@@ -45,6 +45,21 @@ export default async function DashboardPage() {
     const upcoming = visits.items.filter((v) => new Date(v.scheduled_start) >= new Date());
     const filled = upcoming.filter((v) => v.caregiver_id !== null).length;
 
+    // A genuine 14-day series from the visit rows we already hold — not a snapshot table
+    // and not fabricated. It answers "is our schedule growing or thinning", which is the
+    // question a count alone cannot.
+    const dailyVisits = Array.from({ length: 14 }, (_, offset) => {
+      const day = new Date();
+      day.setHours(0, 0, 0, 0);
+      day.setDate(day.getDate() - (13 - offset));
+      return visits.items.filter(
+        (v) => new Date(v.scheduled_start).toDateString() === day.toDateString(),
+      ).length;
+    });
+    // Only plot a trend once there is something to see; a flat line at zero is noise
+    // dressed up as information.
+    const visitTrend = dailyVisits.some((n) => n > 0) ? dailyVisits : undefined;
+
     // Attention is the sum of things a person must act on today. It is the hero because it
     // is the number that decides whether anything else on this page matters right now.
     const attention = gaps.length + expired.length + unscreened.length;
@@ -116,7 +131,12 @@ export default async function DashboardPage() {
 
         <div className="stat-grid">
           <StatTile label="Active caregivers" value={activeCaregivers.length} href="/credentialing" />
-          <StatTile label="Scheduled visits" value={visits.page.total} hint="All time" />
+          <StatTile
+            label="Scheduled visits"
+            value={visits.page.total}
+            hint="Last 14 days plotted"
+            trend={visitTrend}
+          />
           <StatTile
             label="Expiring in 60 days"
             value={expiring.length - expired.length}

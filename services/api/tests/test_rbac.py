@@ -53,6 +53,19 @@ EXPECTED_ACCESS: dict[str, list[str]] = {
     ],
     "GET /v1/clients": ["auditor", "clinical_supervisor", "owner_admin", "scheduler"],
     "GET /v1/clients/{client_id}": ["auditor", "clinical_supervisor", "owner_admin", "scheduler"],
+    "GET /v1/clients/{client_id}/care-plans": [
+        "auditor",
+        "clinical_supervisor",
+        "owner_admin",
+        "scheduler",
+    ],
+    "GET /v1/compliance-exceptions": ["auditor", "clinical_supervisor", "owner_admin", "scheduler"],
+    "GET /v1/compliance-exceptions/summary": [
+        "auditor",
+        "clinical_supervisor",
+        "owner_admin",
+        "scheduler",
+    ],
     "GET /v1/job-postings": ["auditor", "owner_admin", "scheduler"],
     "GET /v1/job-postings/{job_posting_id}/applicants": ["auditor", "owner_admin", "scheduler"],
     "GET /v1/reports/credential-expirations": [
@@ -94,6 +107,11 @@ EXPECTED_ACCESS: dict[str, list[str]] = {
     "POST /v1/caregivers/{caregiver_id}/exclusion-check": ["owner_admin"],
     "POST /v1/clients": ["clinical_supervisor", "owner_admin", "scheduler"],
     "POST /v1/clients/{client_id}/care-plans": ["clinical_supervisor", "owner_admin"],
+    "POST /v1/compliance-exceptions/{exception_id}/resolve": [
+        "clinical_supervisor",
+        "owner_admin",
+        "scheduler",
+    ],
     "POST /v1/job-postings": ["owner_admin", "scheduler"],
     "POST /v1/visits/{visit_id}/assign": ["owner_admin", "scheduler"],
     "POST /v1/visits/{visit_id}/clock-in": ["caregiver", "owner_admin", "scheduler"],

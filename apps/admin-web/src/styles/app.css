@@ -993,3 +993,66 @@
     margin-left: 3.5rem;
   }
 }
+
+/* --- Timeline interaction ------------------------------------------------ */
+
+/* The mark is a button so it is focusable; it must not look like one. */
+button.timeline__visit {
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+/* Invisible padded hit area: the bar stays 14px tall, the target reaches ~24px. */
+.timeline__hit {
+  position: absolute;
+  inset: -6px -3px;
+}
+
+.tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 12rem;
+  padding: var(--space-2) var(--space-3);
+  background: var(--ink);
+  color: var(--surface);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  text-align: left;
+  pointer-events: none;
+  white-space: normal;
+}
+
+.tooltip__title {
+  font-weight: var(--weight-semibold);
+}
+
+.tooltip__detail {
+  opacity: 0.85;
+}
+
+/* The plan a generation run will follow. The rule is set in monospace because an RRULE is a
+   machine string a scheduler reads token by token — BYDAY=MO,WE,FR is scanned, not read as
+   prose — and proportional type makes the commas and equals signs hard to separate. */
+.plan-summary {
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
+  background: var(--surface-sunken);
+  border-left: 2px solid var(--border-accent);
+  border-radius: var(--radius-sm);
+}
+
+.plan-summary__rule {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--ink);
+  word-break: break-all;
+  margin-bottom: 2px;
+}

@@ -32,13 +32,16 @@ seed: ## Seed global reference data (EVV aggregators, credential types, service 
 dev: ## Run the API with reload
 	cd $(API) && .venv/bin/uvicorn careos.main:app --reload --port 8000
 
+# These invoke `pytest` rather than `python -m pytest` to match CI exactly. The two forms
+# differ in what lands on sys.path, and running the friendlier one locally hid a collection
+# failure that only CI saw.
 .PHONY: test
 test: ## Run the full test suite (requires PostgreSQL)
-	cd $(API) && CAREOS_ENVIRONMENT=test .venv/bin/python -m pytest -q
+	cd $(API) && CAREOS_ENVIRONMENT=test .venv/bin/pytest -q
 
 .PHONY: test-isolation
 test-isolation: ## Run only the multi-tenant isolation tests
-	cd $(API) && CAREOS_ENVIRONMENT=test .venv/bin/python -m pytest tests/test_multitenant_isolation.py -v
+	cd $(API) && CAREOS_ENVIRONMENT=test .venv/bin/pytest tests/test_multitenant_isolation.py -v
 
 .PHONY: lint
 lint: ## Lint and format-check

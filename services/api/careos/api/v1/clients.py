@@ -160,6 +160,36 @@ async def generate_visits(
     return [schemas.VisitOut.model_validate(v) for v in visits]
 
 
+@router.get("/clients/{client_id}/care-plans", response_model=list[schemas.CarePlanOut])
+async def list_care_plans(
+    client_id: uuid.UUID,
+    principal: Principal = Depends(
+        requires(Role.owner_admin, Role.scheduler, Role.clinical_supervisor, Role.auditor)
+    ),
+    session: AsyncSession = Depends(db_session),
+) -> list[schemas.CarePlanOut]:
+    """Care plans for a client.
+
+    Without this, a plan's id was only ever visible in the redirect that created it — so
+    coming back to a client later left no way to generate more visits from a plan that
+    already existed.
+    """
+    if await session.get(Client, client_id) is None:
+        raise NotFoundError("Client not found")
+    rows = (
+        (
+            await session.execute(
+                select(CarePlan)
+                .where(CarePlan.client_id == client_id)
+                .order_by(CarePlan.effective_start.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [schemas.CarePlanOut.model_validate(p) for p in rows]
+
+
 @router.get("/care-plans/{care_plan_id}", response_model=schemas.CarePlanOut)
 async def get_care_plan(
     care_plan_id: uuid.UUID,

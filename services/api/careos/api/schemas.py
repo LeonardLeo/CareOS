@@ -149,6 +149,10 @@ class CarePlanOut(ORMModel):
     id: uuid.UUID
     client_id: uuid.UUID
     authorized_tasks: list[Any]
+    # The recurrence rule decides which visits generation produces, so it belongs in the
+    # response: without it a scheduler about to generate a month of work cannot see the
+    # pattern that work will follow, and with more than one plan cannot tell them apart.
+    visit_frequency_rule: dict[str, Any]
     effective_start: date
     effective_end: date | None
     default_service_type_code: str | None
@@ -410,3 +414,27 @@ class ReviewStatusOut(BaseModel):
     is_overdue: bool
     #: Distinct from overdue, and more serious: this review has never been run at all.
     never_performed: bool
+
+
+# --- Compliance exception queue (US-1.4.6) ------------------------------------------------
+
+
+class ComplianceExceptionOut(ORMModel):
+    id: uuid.UUID
+    rule_key: str
+    severity: str
+    entity_type: str
+    entity_id: uuid.UUID
+    message: str
+    details: dict[str, Any]
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class ExceptionSummaryOut(BaseModel):
+    total_open: int
+    by_severity: dict[str, int]
+
+
+class ResolveException(BaseModel):
+    note: str | None = None

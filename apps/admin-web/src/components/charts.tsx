@@ -20,6 +20,8 @@
 
 import type { ReactNode } from "react";
 
+import { TimelineMark } from "@/components/timeline-mark";
+
 /* --- Meter: one ratio against a limit ------------------------------------------------ */
 
 export function Meter({
@@ -246,6 +248,7 @@ export interface TimelineVisit {
   end: string;
   assigned: boolean;
   label: string;
+  detail: string;
 }
 
 /**
@@ -331,7 +334,7 @@ export function ScheduleTimeline({
                 ((s.getHours() + s.getMinutes() / 60 - dayStartHour) / span) * 100;
               const widthPct = ((e.getTime() - s.getTime()) / 3600000 / span) * 100;
               return (
-                <div
+                <TimelineMark
                   key={visit.id}
                   className={[
                     "timeline__visit",
@@ -344,10 +347,9 @@ export function ScheduleTimeline({
                     left: `${Math.max(0, Math.min(startPct, 98))}%`,
                     width: `${Math.max(widthPct, 2)}%`,
                   }}
-                  title={visit.label}
-                >
-                  <span className="visually-hidden">{visit.label}</span>
-                </div>
+                  label={visit.label}
+                  detail={visit.detail}
+                />
               );
             })}
           </div>

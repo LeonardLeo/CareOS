@@ -76,6 +76,33 @@ async def test_full_phase1_golden_path(client, reference_data: None) -> None:
     assert plan_response.status_code == 201, plan_response.text
     plan_id = plan_response.json()["id"]
 
+    # 3a. The plan is retrievable by client, and carries its recurrence rule.
+    #
+    # Both matter to the same screen. Without the list, a plan's id existed only in the
+    # redirect that created it, so returning to a client later left no way to generate
+    # further visits from a plan that already existed. Without the rule in the response, a
+    # scheduler about to materialize a month of work cannot see the pattern that work will
+    # follow, and with more than one plan cannot tell which is selected.
+    plan_list = await client.get(f"/v1/clients/{client_id}/care-plans", headers=headers)
+    assert plan_list.status_code == 200, plan_list.text
+    listed = plan_list.json()
+    assert [p["id"] for p in listed] == [plan_id]
+    assert listed[0]["visit_frequency_rule"] == {"rrule": "FREQ=DAILY;COUNT=2", "start_hour": 9}
+
+    # A second plan sorts ahead of the first, because the screen offers the newest by default.
+    later_plan = await client.post(
+        f"/v1/clients/{client_id}/care-plans",
+        headers=headers,
+        json={
+            "authorized_tasks": [{"code": "meal_prep", "label": "Meal preparation"}],
+            "visit_frequency_rule": {"rrule": "FREQ=WEEKLY;BYDAY=SA,SU", "start_hour": 14},
+            "effective_start": (datetime.now(UTC) + timedelta(days=30)).date().isoformat(),
+        },
+    )
+    assert later_plan.status_code == 201, later_plan.text
+    ordered = (await client.get(f"/v1/clients/{client_id}/care-plans", headers=headers)).json()
+    assert [p["id"] for p in ordered] == [later_plan.json()["id"], plan_id]
+
     # 4. Generate visits.
     generate = await client.post(
         f"/v1/care-plans/{plan_id}/generate-visits",

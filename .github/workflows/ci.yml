@@ -24,6 +24,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Ignore rules must not exclude source paths
+        run: |
+          # A Python .gitignore's unanchored `lib/` once matched apps/admin-web/src/lib and
+          # kept the web app's API client out of the repo entirely: it built locally, where
+          # the files were on disk, and failed here, where they had never been committed.
+          #
+          # This checks the ignore *rules*, not the working tree. A clean checkout does not
+          # contain the excluded files, so anything that scans for them on disk finds nothing
+          # and passes vacuously. `git check-ignore` evaluates patterns against paths that do
+          # not exist, which is what makes this catch the next one.
+          status=0
+          for path in \
+            apps/admin-web/src/lib/x.ts \
+            apps/admin-web/src/components/x.tsx \
+            apps/admin-web/src/app/x/page.tsx \
+            apps/admin-web/src/styles/x.css \
+            services/api/careos/x.py \
+            services/api/careos/modules/x/y.py \
+            services/api/tests/test_x.py \
+            services/api/alembic/versions/x.py \
+            docs/x.md
+          do
+            if git check-ignore -q "$path"; then
+              echo "::error::.gitignore excludes the source path $path"
+              git check-ignore -v "$path"
+              status=1
+            fi
+          done
+          exit $status
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -199,10 +228,17 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
       - name: Install scanners
-        run: python -m pip install --upgrade pip pip-audit
+        # setuptools is upgraded, not just pinned in the audit: PYSEC-2026-3447 is a flaw in
+        # setuptools itself (MANIFEST.in exclusions bypassed by Unicode normalization, so a
+        # file meant to stay private can be packed into an sdist), and the runner image ships
+        # a version below the 83.0.0 fix. Since CI builds this package with `pip install -e .`,
+        # upgrading the build tool is the remediation rather than a way to quiet the scanner.
+        run: python -m pip install --upgrade pip "setuptools>=83.0.0" pip-audit
       - name: Audit dependencies
         working-directory: services/api
-        run: pip-audit --desc || exit 1
+        # No `|| exit 1` — pip-audit's own non-zero exit already fails the step, and the
+        # trailing clause only obscured which command failed.
+        run: pip-audit --desc
       - name: Fail on committed secrets
         run: |
           # Credentials belong in the secrets manager (08_Security_Architecture.md §5).

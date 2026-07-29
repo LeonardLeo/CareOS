@@ -7,20 +7,27 @@ __pycache__/
 *.so
 
 # Distribution / packaging
+#
+# These are anchored with a leading slash on purpose. Unanchored, `lib/` matches a directory
+# named `lib` at *any* depth — which in this monorepo silently excluded
+# `apps/admin-web/src/lib/`, the web app's API client and session module. It built fine
+# locally, where the files exist on disk, and failed CI's type-check, where they had never
+# been committed. Anchoring keeps these rules aimed at a Python build at the repo root and
+# off directories that happen to share a name with one.
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
+/build/
+/develop-eggs/
+/dist/
+/downloads/
+/eggs/
+/.eggs/
+/lib/
+/lib64/
+/parts/
+/sdist/
+/var/
+/wheels/
+/share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg

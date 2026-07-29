@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { api } from "@/lib/api";
 import { canSee, getSession } from "@/lib/session";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", area: "dashboard" },
   { href: "/scheduling", label: "Scheduling", area: "scheduling" },
+  { href: "/clients", label: "Clients", area: "scheduling" },
+  { href: "/exceptions", label: "Exceptions", area: "exceptions" },
   { href: "/recruiting", label: "Recruiting", area: "recruiting" },
   { href: "/credentialing", label: "Credentialing", area: "credentialing" },
   { href: "/compliance", label: "Compliance", area: "compliance" },
@@ -27,6 +30,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // API's RBAC plus row-level security — this layout is not a security control.
   const links = NAV.filter((item) => canSee(item.area, session.role));
 
+  // An unattended queue should be visible without opening it. Best-effort: a nav badge is
+  // never worth failing the whole layout over, so a lookup failure just omits the count.
+  let openExceptions = 0;
+  try {
+    openExceptions = (await api.exceptionSummary(session.token)).total_open;
+  } catch {
+    openExceptions = 0;
+  }
+
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -43,7 +55,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <nav className="nav" aria-label="Main">
           {links.map((item) => (
             <Link key={item.href} className="nav__link" href={item.href}>
-              {item.label}
+              <span>{item.label}</span>
+              {item.href === "/exceptions" && openExceptions > 0 && (
+                <span className="nav__count">{openExceptions}</span>
+              )}
             </Link>
           ))}
         </nav>
