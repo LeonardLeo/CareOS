@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-29
-**Assessed by:** build increment 4 (agency admin web app)
+**Assessed by:** build increment 5 (admin app information design)
 
 ---
 
@@ -119,7 +119,10 @@ caregiver is unassignable right now.
 
 ### Agency admin web app
 Next.js App Router, server-rendered, with the design-token pass `09_UX...` Section 5 asks for
-done before any screen. The access token is held in an httpOnly cookie and never reaches page
+done before any screen. Charts are chosen by the data's job — a meter for coverage, an
+ordinal-ramp funnel for pipeline stages, a length-comparable bar for match scores, a timeline
+for schedule occupancy — and the palette was validated for colour-vision separation against
+both surfaces rather than picked by eye. The access token is held in an httpOnly cookie and never reaches page
 JavaScript, because this surface renders PHI. Screens: dashboard, scheduling board with gap
 queue and ranked suggestions (Flow A), recruiting funnel and applicant pipeline, credentialing
 renewal queue, compliance review standing. Verified end to end against a live API — assigning

@@ -13,8 +13,15 @@ export default async function LoginPage({
   return (
     <main className="login">
       <div className="login__panel">
-        <h1 className="login__title">CareOS</h1>
-        <p className="login__subtitle">Agency administration</p>
+        <div className="login__brand">
+          <span className="brand__mark" aria-hidden="true">
+            C
+          </span>
+          <div>
+            <h1 className="login__title">CareOS</h1>
+            <p className="login__subtitle">Agency administration</p>
+          </div>
+        </div>
 
         {error && <ErrorNote title={error} />}
 

@@ -5,19 +5,21 @@
  * composes from these rather than styling ad hoc, so the three surfaces stay consistent as
  * they grow.
  *
- * `SeverityBadge` and `StatusDot` always pair colour with a text label, because design
- * principle 6 makes accessibility a baseline: colour alone is not a signal.
+ * `SeverityBadge` always pairs colour with a text label, because design principle 6 makes
+ * accessibility a baseline: colour alone is not a signal. Charts and figures live in
+ * `charts.tsx`.
  */
 
 import type { ReactNode } from "react";
 
-export type Severity = "critical" | "warning" | "info" | "success" | "neutral";
+export type Severity = "critical" | "warning" | "serious" | "info" | "good" | "neutral";
 
 const SEVERITY_LABEL: Record<Severity, string> = {
   critical: "Critical",
   warning: "Warning",
+  serious: "Serious",
   info: "Info",
-  success: "OK",
+  good: "OK",
   neutral: "—",
 };
 
@@ -30,15 +32,6 @@ export function SeverityBadge({
 }) {
   return (
     <span className={`badge badge--${severity}`}>{children ?? SEVERITY_LABEL[severity]}</span>
-  );
-}
-
-export function StatusDot({ severity, label }: { severity: Severity; label: string }) {
-  return (
-    <span className="status">
-      <span className={`status__dot status__dot--${severity}`} aria-hidden="true" />
-      {label}
-    </span>
   );
 }
 
@@ -69,26 +62,6 @@ export function Card({
   );
 }
 
-export function StatTile({
-  label,
-  value,
-  hint,
-  severity = "neutral",
-}: {
-  label: string;
-  value: string | number;
-  hint?: string;
-  severity?: Severity;
-}) {
-  return (
-    <div className="stat">
-      <div className="stat__label">{label}</div>
-      <div className={`stat__value stat__value--${severity}`}>{value}</div>
-      {hint && <div className="stat__hint">{hint}</div>}
-    </div>
-  );
-}
-
 /**
  * Shown when a list is empty.
  *
@@ -108,8 +81,13 @@ export function EmptyState({ title, detail }: { title: string; detail?: string }
 export function ErrorNote({ title, detail }: { title: string; detail?: string }) {
   return (
     <div className="error-note" role="alert">
-      <p className="error-note__title">{title}</p>
-      {detail && <p className="error-note__detail">{detail}</p>}
+      <span className="error-note__icon" aria-hidden="true">
+        !
+      </span>
+      <div>
+        <p className="error-note__title">{title}</p>
+        {detail && <p className="error-note__detail">{detail}</p>}
+      </div>
     </div>
   );
 }
@@ -118,8 +96,13 @@ export function ErrorNote({ title, detail }: { title: string; detail?: string })
  * Inline reasoning for an AI suggestion.
  *
  * `09_UX...` principle 4: an AI-generated score is never shown as an unexplained number.
- * The bar widths are the factor contributions, so what a scheduler sees adds up to the score
- * next to it.
+ *
+ * The magnitude of each factor is carried by the stacked `ScoreBar` above this list, whose
+ * segments sum to the score. Repeating that magnitude as a per-row bar here would
+ * double-encode it and add ink that is not data — so each row gets a small colored key
+ * matching its segment, and the text does the rest. The text never wears the data color:
+ * the lighter ramp steps are illegible as type, so identity comes from the swatch beside
+ * the words.
  */
 export function FactorList({
   factors,
@@ -129,15 +112,14 @@ export function FactorList({
   if (factors.length === 0) return null;
   return (
     <ul className="factors">
-      {factors.map((f) => (
+      {factors.map((f, index) => (
         <li key={f.factor} className="factor">
-          <div className="factor__bar" aria-hidden="true">
-            <div
-              className="factor__fill"
-              style={{ width: `${Math.min(100, Math.abs(f.weight) * 100)}%` }}
-            />
-          </div>
-          <span className="factor__text">{f.rationale}</span>
+          <span
+            className="factor__dot"
+            style={{ background: `var(--ordinal-${Math.min(index + 2, 4)})` }}
+            aria-hidden="true"
+          />
+          <span>{f.rationale}</span>
         </li>
       ))}
     </ul>

@@ -31,8 +31,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          CareOS
-          <span className="brand__sub">Agency administration</span>
+          <span className="brand__mark" aria-hidden="true">
+            C
+          </span>
+          <span className="brand__text">
+            CareOS
+            <span className="brand__sub">Agency admin</span>
+          </span>
         </div>
 
         <nav className="nav" aria-label="Main">
@@ -44,9 +49,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </nav>
 
         <div className="sidebar__footer">
-          <div>{ROLE_LABEL[session.role] ?? session.role}</div>
-          <form method="post" action="/api/auth/logout" style={{ marginTop: "var(--space-2)" }}>
-            <button className="button button--secondary button--small" type="submit">
+          <div className="sidebar__role">{ROLE_LABEL[session.role] ?? session.role}</div>
+          <form method="post" action="/api/auth/logout">
+            <button className="button button--ghost button--small" type="submit">
               Sign out
             </button>
           </form>

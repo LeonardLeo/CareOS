@@ -71,7 +71,7 @@ export default async function CompliancePage() {
                   ) : review.is_overdue ? (
                     <SeverityBadge severity="warning">Overdue</SeverityBadge>
                   ) : (
-                    <SeverityBadge severity="success">Current</SeverityBadge>
+                    <SeverityBadge severity="good">Current</SeverityBadge>
                   )}
                 </td>
               </tr>

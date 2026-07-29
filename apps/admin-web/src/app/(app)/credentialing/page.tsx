@@ -51,7 +51,7 @@ export default async function CredentialingPage() {
         <Card
           title="Expired"
           subtitle="Blocking assignment right now"
-          action={<SeverityBadge severity={expired.length ? "critical" : "success"}>{expired.length}</SeverityBadge>}
+          action={<SeverityBadge severity={expired.length ? "critical" : "good"}>{expired.length}</SeverityBadge>}
         >
           {expired.length === 0 ? (
             <EmptyState title="No expired credentials" />
@@ -62,7 +62,7 @@ export default async function CredentialingPage() {
 
         <Card
           title="Expiring within 7 days"
-          action={<SeverityBadge severity={within7.length ? "warning" : "success"}>{within7.length}</SeverityBadge>}
+          action={<SeverityBadge severity={within7.length ? "warning" : "good"}>{within7.length}</SeverityBadge>}
         >
           {within7.length === 0 ? <EmptyState title="Nothing expiring this week" /> : <CredentialTable rows={within7} />}
         </Card>

@@ -8,14 +8,15 @@
  * they did — and so must a regulator, later.
  */
 
+import { Funnel, ScoreBar } from "@/components/charts";
 import { Card, EmptyState, ErrorNote, FactorList, SeverityBadge, Table, formatDate } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
 import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-const STAGE_SEVERITY: Record<string, "success" | "info" | "warning" | "neutral"> = {
-  hired: "success",
+const STAGE_SEVERITY: Record<string, "good" | "info" | "warning" | "neutral"> = {
+  hired: "good",
   offer: "info",
   screened: "info",
   applied: "neutral",
@@ -48,22 +49,19 @@ export default async function RecruitingPage({
           <p className="page-subtitle">Pipeline health and applicant ranking.</p>
         </header>
 
-        <Card title="Funnel" subtitle="Conversion is measured from the preceding stage">
-          <Table headers={["Stage", "Reached", "Conversion"]} caption="Recruiting funnel">
-            {funnel.map((stage) => (
-              <tr key={stage.stage}>
-                <td style={{ textTransform: "capitalize" }}>{stage.stage}</td>
-                <td>{stage.count}</td>
-                <td>
-                  {stage.conversion_from_previous === null ? (
-                    <span className="muted">—</span>
-                  ) : (
-                    `${Math.round(stage.conversion_from_previous * 100)}%`
-                  )}
-                </td>
-              </tr>
-            ))}
-          </Table>
+        <Card
+          title="Funnel"
+          subtitle="Counts are cumulative — someone hired also passed screening — so conversion measures progression, not who is sitting in a stage."
+        >
+          {/* Ordered stages, so the validated ordinal ramp carries the sequence. Nominal
+              categories would get a single color; these have a real order. */}
+          <Funnel
+            stages={funnel.map((s) => ({
+              stage: s.stage,
+              count: s.count,
+              conversion: s.conversion_from_previous,
+            }))}
+          />
         </Card>
 
         <Card title="Job postings" subtitle={`${postings.length} total`}>
@@ -103,19 +101,17 @@ export default async function RecruitingPage({
                 <div key={applicant.id} className="suggestion">
                   <div className="suggestion__head">
                     <span className="suggestion__name">{applicant.full_name}</span>
-                    <span className="suggestion__score">
-                      {applicant.ranking_score === null ? (
-                        <span className="muted small">Not ranked</span>
-                      ) : (
-                        <>
-                          {Math.round(applicant.ranking_score * 100)}
-                          <span className="visually-hidden"> out of 100 match score</span>
-                        </>
-                      )}
-                    </span>
+                    {applicant.ranking_score === null ? (
+                      <span className="muted small">Not ranked</span>
+                    ) : (
+                      <ScoreBar
+                        score={applicant.ranking_score}
+                        segments={applicant.ranking_factors.map((f) => f.weight)}
+                      />
+                    )}
                   </div>
 
-                  <div className="small muted" style={{ marginTop: "var(--space-1)" }}>
+                  <div className="suggestion__meta row" style={{ marginTop: "var(--space-2)" }}>
                     <SeverityBadge severity={STAGE_SEVERITY[applicant.pipeline_stage] ?? "neutral"}>
                       {applicant.pipeline_stage}
                     </SeverityBadge>{" "}

@@ -85,6 +85,28 @@ Screens: dashboard, scheduling board with gap queue and ranked suggestions (Flow
 highest-frequency flow), recruiting funnel and applicant pipeline, credentialing renewal
 queue, and compliance review standing.
 
+### Information design
+
+It is an operational console for someone working a live gap under time pressure, not a
+marketing dashboard — so the chrome is recessive (hairline borders, no drop shadows, one
+accent) and the data is the only loud thing on screen.
+
+Each view starts from the data's job rather than a chart type. Coverage is a single ratio
+against a limit, so it is a **meter**, not a two-slice pie. The recruiting funnel is an
+ordered scale, so it uses a validated **ordinal ramp**. A match score is magnitude, so it is
+a **bar** you compare by length instead of two numbers you read. The schedule is occupancy
+over time, so it is a **timeline** — a list sorted by start time answers "what's next" but
+hides clustering, and three unfilled visits at the same hour on Thursday is a different
+problem from three spread across the week.
+
+**The palette is computed, not chosen by eye.** The categorical slots and the ordinal ramp
+were run through a validator against both surfaces: adjacent CVD ΔE 9.1 light / 8.4 dark
+(≥8 target), normal-vision ΔE 22.9 / 19.8 (≥15 floor), and the ordinal ramp passes
+monotone-lightness with ≥0.06 ΔL between steps in both modes. Dark mode is the same hues
+re-stepped for the dark surface, not an automatic flip. Status colors are reserved — critical
+means "act on this" — and always ship with an icon or label, since colour alone is not a
+signal.
+
 ## Architecture at a glance
 
 A **modular monolith** (`docs/03_Technical_Architecture.md` principle 2): one deployable,
