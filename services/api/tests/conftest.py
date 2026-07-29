@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
@@ -66,8 +67,30 @@ from careos.modules.scheduling.models import CarePlan, Client  # noqa: E402
 API_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _run(command: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
+    """Run a setup command, raising with its stderr when it fails.
+
+    `capture_output=True` with a bare `check=True` produces a CalledProcessError whose message
+    is only the exit status — the actual reason sits in the captured stderr and is discarded.
+    In a session-scoped fixture that turns any setup failure into every test erroring for no
+    stated reason, which is how a missing binary here cost a full CI cycle to identify.
+    """
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        env=env or {**os.environ, "PGPASSWORD": SUPERPASS},
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"test setup command failed ({result.returncode}): {' '.join(command)}\n"
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+
+
 def _psql(sql: str, *, database: str = "postgres") -> None:
-    subprocess.run(
+    _run(
         [
             "psql",
             "-h",
@@ -83,10 +106,7 @@ def _psql(sql: str, *, database: str = "postgres") -> None:
             "-q",
             "-c",
             sql,
-        ],
-        check=True,
-        capture_output=True,
-        env={**os.environ, "PGPASSWORD": SUPERPASS},
+        ]
     )
 
 
@@ -101,7 +121,7 @@ def database() -> None:
     _psql(f"CREATE DATABASE {TEST_DB}")
 
     bootstrap = API_ROOT / "scripts" / "bootstrap_db.sql"
-    subprocess.run(
+    _run(
         [
             "psql",
             "-h",
@@ -117,17 +137,16 @@ def database() -> None:
             "-q",
             "-f",
             str(bootstrap),
-        ],
-        check=True,
-        capture_output=True,
-        env={**os.environ, "PGPASSWORD": SUPERPASS},
+        ]
     )
-    subprocess.run(
-        [str(API_ROOT / ".venv" / "bin" / "alembic"), "upgrade", "head"],
-        check=True,
-        capture_output=True,
+    # Via the interpreter running the tests, not a `.venv/bin/alembic` path inside the repo.
+    # That path exists on a developer machine set up by `make install` and does not exist in
+    # CI, where the package is pip-installed into the runner's own Python — so the hard-coded
+    # form made the whole suite pass locally and error on every test in CI.
+    _run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=API_ROOT,
-        env=os.environ,
+        env=dict(os.environ),
     )
 
 

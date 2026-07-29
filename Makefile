@@ -43,6 +43,24 @@ test: ## Run the full test suite (requires PostgreSQL)
 test-isolation: ## Run only the multi-tenant isolation tests
 	cd $(API) && CAREOS_ENVIRONMENT=test .venv/bin/pytest tests/test_multitenant_isolation.py -v
 
+# Reproduces CI rather than approximating it. Three separate CI failures came from code that
+# assumed a developer machine: a source directory excluded by .gitignore, `python -m pytest`
+# resolving imports differently from `pytest`, and a hard-coded services/api/.venv/bin/alembic.
+# None were visible from a working tree that already had all three. This target builds a clean
+# clone with its virtualenv outside the repo, which is the only arrangement in which those
+# assumptions fail here the way they fail there.
+.PHONY: test-clean
+test-clean: ## Run the suite against a clean clone with an out-of-tree venv, as CI does
+	@set -e; \
+	tmp=$$(mktemp -d); \
+	echo "clean checkout: $$tmp"; \
+	git clone -q --depth 1 --no-local . $$tmp/repo; \
+	python3 -m venv $$tmp/venv; \
+	$$tmp/venv/bin/pip install -q --upgrade pip "setuptools>=83.0.0"; \
+	$$tmp/venv/bin/pip install -q -e "$$tmp/repo/services/api[dev]"; \
+	cd $$tmp/repo/services/api && CAREOS_ENVIRONMENT=test $$tmp/venv/bin/pytest -q; \
+	status=$$?; rm -rf $$tmp; exit $$status
+
 .PHONY: lint
 lint: ## Lint and format-check
 	cd $(API) && .venv/bin/ruff check careos tests

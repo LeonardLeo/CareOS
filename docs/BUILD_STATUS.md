@@ -71,8 +71,19 @@ ranking, ambient extraction, and claim scrubbing are all core to the roadmap.
   - `pytest` and `python -m pytest` disagreed. With `tests/` not a package, the bare form puts
     `tests/` itself on `sys.path` rather than its parent, so `from tests.conftest import ...`
     fails at collection. CI runs the bare form. `pythonpath = ["."]` makes both work.
+  - The session fixture shelled out to `services/api/.venv/bin/alembic` — a path created by
+    `make install` and absent in CI, where the package is pip-installed into the runner's own
+    Python. Every test errored in setup. It now runs alembic through the interpreter running
+    the tests. The fixture's subprocess helper also raises with the captured stderr instead of
+    only an exit status, so the next setup failure names itself rather than reporting nothing
+    across every test.
   - `pip-audit` flagged PYSEC-2026-3447 in the runner's setuptools. Remediated by requiring
     `setuptools>=83.0.0` for the build rather than by excusing the finding.
+
+  All three assumed a developer machine and were invisible from a working tree that already
+  satisfied them. `make test-clean` now runs the suite against a fresh clone with its
+  virtualenv outside the repo, which is the only local arrangement in which those assumptions
+  fail the way they fail in CI.
 
 ### Scheduling and EVV
 - Clients, care plans, RRULE-based visit generation (idempotent over overlapping windows).
