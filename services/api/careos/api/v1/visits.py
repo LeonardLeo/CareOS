@@ -23,12 +23,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from careos.api import schemas
 from careos.api.deps import db_session
 from careos.core import idempotency
+from careos.core.audit import AuditAction, record_audit
 from careos.core.errors import NotFoundError, PermissionDeniedError
 from careos.core.rbac import requires
 from careos.core.security import Principal
 from careos.modules.agency.models import Role
 from careos.modules.compliance_rules import engine as rules_engine
 from careos.modules.credentialing.models import Caregiver
+from careos.modules.scheduling import matching
 from careos.modules.scheduling import service as scheduling_service
 from careos.modules.scheduling.models import (
     CaptureMethod,
@@ -118,6 +120,20 @@ async def list_visits(
         items=[schemas.VisitOut.model_validate(v) for v in rows],
         page=schemas.Page(page=page, page_size=page_size, total=total),
     )
+
+
+# Registered before /visits/{visit_id}: FastAPI matches routes in declaration order, so a
+# literal segment must be declared ahead of the parameterized one or "gaps" is parsed as
+# a visit id and rejected as a malformed UUID.
+@router.get("/visits/gaps", response_model=list[schemas.VisitOut])
+async def open_gaps(
+    principal: Principal = Depends(requires(Role.owner_admin, Role.scheduler)),
+    session: AsyncSession = Depends(db_session),
+    within_hours: int = Query(default=48, ge=1, le=24 * 30),
+) -> list[schemas.VisitOut]:
+    """Unfilled visits starting soon, soonest first (US-1.4.4)."""
+    gaps = await matching.detect_gaps(session, within_hours=within_hours)
+    return [schemas.VisitOut.model_validate(v) for v in gaps]
 
 
 @router.get("/visits/{visit_id}", response_model=schemas.VisitOut)
@@ -291,3 +307,37 @@ async def visit_compliance(
         )
         for f in findings
     ]
+
+
+@router.get(
+    "/visits/{visit_id}/suggested-caregivers",
+    response_model=list[schemas.CaregiverSuggestionOut],
+)
+async def suggested_caregivers(
+    visit_id: uuid.UUID,
+    principal: Principal = Depends(requires(Role.owner_admin, Role.scheduler)),
+    session: AsyncSession = Depends(db_session),
+    limit: int = Query(default=10, ge=1, le=50),
+) -> list[schemas.CaregiverSuggestionOut]:
+    """AI-ranked caregivers for this visit, with inline reasoning (US-1.4.2, US-1.4.4).
+
+    Only caregivers who would actually pass the assignment gates are returned, so every
+    suggestion is safe to offer in one tap.
+    """
+    visit = await _load_visit(session, visit_id, principal)
+    suggestions = await matching.suggest_caregivers(session, visit=visit, limit=limit)
+
+    # Ranking influences who is offered work, so surfacing suggestions is itself auditable.
+    await record_audit(
+        session,
+        principal=principal,
+        agency_id=principal.agency_id,
+        action=AuditAction.shift_suggestions_generated,
+        entity_type="scheduled_visit",
+        entity_id=visit.id,
+        after_state={
+            "suggested_count": len(suggestions),
+            "top_caregiver_id": (str(suggestions[0].caregiver_id) if suggestions else None),
+        },
+    )
+    return [schemas.CaregiverSuggestionOut(**s.as_payload()) for s in suggestions]

@@ -18,7 +18,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from careos.api.deps import authenticate
-from careos.api.v1 import agencies, auth, caregivers, clients, visits
+from careos.api.v1 import agencies, auth, caregivers, clients, recruiting, visits
 from careos.config import get_settings
 from careos.core.context import request_id_var, source_ip_var
 from careos.core.errors import CareOSError, ValidationError
@@ -102,6 +102,7 @@ def create_app() -> FastAPI:
     v1.include_router(agencies.router)
     v1.include_router(caregivers.router)
     v1.include_router(clients.router)
+    v1.include_router(recruiting.router)
     v1.include_router(visits.router)
     app.include_router(v1)
 

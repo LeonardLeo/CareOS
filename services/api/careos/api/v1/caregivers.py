@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,11 +18,14 @@ from careos.core.errors import NotFoundError
 from careos.core.rbac import requires
 from careos.core.security import Principal
 from careos.modules.agency.models import Role
+from careos.modules.credentialing import service as credentialing
 from careos.modules.credentialing.models import (
     Caregiver,
+    Credential,
     EmploymentStatus,
     ExclusionCheckStatus,
     ScreeningRequest,
+    VerificationStatus,
 )
 
 router = APIRouter(tags=["caregivers"])
@@ -167,3 +170,80 @@ async def record_exclusion_check(
         session, outcome.record, status=200, body=body.model_dump(mode="json")
     )
     return body
+
+
+@router.post(
+    "/caregivers/{caregiver_id}/credentials",
+    response_model=schemas.CredentialOut,
+    status_code=201,
+)
+async def add_credential(
+    caregiver_id: uuid.UUID,
+    payload: schemas.CredentialCreate,
+    principal: Principal = Depends(requires(Role.owner_admin, Role.scheduler)),
+    session: AsyncSession = Depends(db_session),
+) -> schemas.CredentialOut:
+    credential = await credentialing.add_credential(
+        session,
+        principal=principal,
+        caregiver_id=caregiver_id,
+        credential_type=payload.credential_type,
+        issuing_body=payload.issuing_body,
+        credential_number=payload.credential_number,
+        issue_date=payload.issue_date,
+        expiration_date=payload.expiration_date,
+        verification_status=VerificationStatus(payload.verification_status),
+    )
+    return schemas.CredentialOut.model_validate(credential)
+
+
+@router.get("/caregivers/{caregiver_id}/credentials", response_model=list[schemas.CredentialOut])
+async def list_credentials(
+    caregiver_id: uuid.UUID,
+    principal: Principal = Depends(
+        requires(Role.owner_admin, Role.scheduler, Role.clinical_supervisor, Role.auditor)
+    ),
+    session: AsyncSession = Depends(db_session),
+) -> list[schemas.CredentialOut]:
+    if await session.get(Caregiver, caregiver_id) is None:
+        raise NotFoundError("Caregiver not found")
+    rows = (
+        (
+            await session.execute(
+                select(Credential)
+                .where(Credential.caregiver_id == caregiver_id)
+                .order_by(Credential.expiration_date.nullslast())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [schemas.CredentialOut.model_validate(c) for c in rows]
+
+
+@router.get("/reports/credential-expirations", response_model=list[schemas.ExpiringCredentialOut])
+async def credential_expirations(
+    principal: Principal = Depends(
+        requires(Role.owner_admin, Role.scheduler, Role.clinical_supervisor, Role.auditor)
+    ),
+    session: AsyncSession = Depends(db_session),
+    horizon_days: int = Query(default=60, ge=1, le=365),
+) -> list[schemas.ExpiringCredentialOut]:
+    """Credentialing dashboard: expiring and already-expired credentials (US-1.3.3).
+
+    Bucketed at 7/30/60 days so renewal reminders can be driven off one query.
+    """
+    rows = await credentialing.expiring_credentials(session, horizon_days=horizon_days)
+    return [
+        schemas.ExpiringCredentialOut(
+            credential_id=r.credential_id,
+            caregiver_id=r.caregiver_id,
+            caregiver_name=r.caregiver_name,
+            credential_type=r.credential_type,
+            expiration_date=r.expiration_date,
+            days_until_expiry=r.days_until_expiry,
+            bucket=r.bucket,
+            already_expired=r.already_expired,
+        )
+        for r in rows
+    ]

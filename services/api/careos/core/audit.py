@@ -51,8 +51,18 @@ class AuditAction(enum.StrEnum):
     evv_rejected = "evv.rejected"
 
     caregiver_created = "caregiver.created"
+    credential_added = "credential.added"
     credential_verified = "credential.verified"
     exclusion_check_recorded = "caregiver.exclusion_check_recorded"
+
+    job_posting_created = "job_posting.created"
+    applicant_ingested = "applicant.ingested"
+    applicants_ranked = "applicant.ranked"
+    applicant_stage_changed = "applicant.stage_changed"
+    applicant_hired = "applicant.hired"
+    #: Recorded when a scheduler is shown AI-ranked caregiver suggestions. Ranking influences
+    #: who gets offered work, so the suggestion event is auditable in its own right.
+    shift_suggestions_generated = "visit.suggestions_generated"
 
     compliance_exception_raised = "compliance_exception.raised"
     compliance_exception_resolved = "compliance_exception.resolved"

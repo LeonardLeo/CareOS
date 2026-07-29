@@ -279,3 +279,121 @@ class Page(BaseModel):
 class VisitPage(BaseModel):
     items: list[VisitOut]
     page: Page
+
+
+# --- Recruiting (Epic 1.2) --------------------------------------------------------------
+
+
+class JobPostingCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    description: str | None = None
+    required_credential_types: list[str] = Field(default_factory=list)
+    service_state: str | None = Field(default=None, min_length=2, max_length=2)
+
+
+class JobPostingOut(ORMModel):
+    id: uuid.UUID
+    title: str
+    description: str | None
+    required_credential_types: list[Any]
+    service_state: str | None
+    status: str
+    created_at: datetime
+
+
+class ApplicantCreate(BaseModel):
+    """Normalized applicant intake.
+
+    Deliberately has no field for date of birth, address, or any demographic attribute.
+    The ranking model must not receive protected-class attributes or their proxies
+    (`06_Compliance_and_Regulatory_Requirements.md` Section 5), and the most reliable way to
+    guarantee that is not to collect them into the hiring record at all.
+    """
+
+    job_posting_id: uuid.UUID | None = None
+    source: str = "direct"
+    full_name: str = Field(min_length=1, max_length=300)
+    email: EmailStr | None = None
+    phone: str | None = None
+    claimed_credentials: list[str] = Field(default_factory=list)
+    availability: dict[str, Any] = Field(default_factory=dict)
+    geo_lat: float | None = Field(default=None, ge=-90, le=90)
+    geo_lng: float | None = Field(default=None, ge=-180, le=180)
+
+
+class RankingFactorOut(BaseModel):
+    factor: str
+    weight: float
+    rationale: str
+
+
+class ApplicantOut(ORMModel):
+    id: uuid.UUID
+    job_posting_id: uuid.UUID | None
+    source: str
+    full_name: str
+    email: str | None
+    phone: str | None
+    claimed_credentials: list[Any]
+    pipeline_stage: str
+    ranking_score: float | None
+    #: Never empty when `ranking_score` is set — enforced in the database as well.
+    ranking_factors: list[Any]
+    ranking_model_version: str | None
+    created_at: datetime
+
+
+class StageChange(BaseModel):
+    stage: Literal["screened", "offer", "hired", "rejected"]
+
+
+class FunnelStageOut(BaseModel):
+    stage: str
+    count: int
+    conversion_from_previous: float | None
+
+
+# --- Shift matching (Epic 1.4) ----------------------------------------------------------
+
+
+class CaregiverSuggestionOut(BaseModel):
+    caregiver_id: uuid.UUID
+    caregiver_name: str
+    score: float
+    #: Inline reasoning. `09_UX_Design_and_User_Flows.md` principle 4 requires every AI
+    #: suggestion to show why, never a bare number.
+    factors: list[RankingFactorOut]
+    warnings: list[str]
+
+
+# --- Credentialing (Epic 1.3) -----------------------------------------------------------
+
+
+class CredentialCreate(BaseModel):
+    credential_type: str
+    issuing_body: str | None = None
+    credential_number: str | None = None
+    issue_date: date | None = None
+    expiration_date: date | None = None
+    verification_status: Literal["pending", "verified", "expired", "rejected"] = "pending"
+
+
+class CredentialOut(ORMModel):
+    id: uuid.UUID
+    caregiver_id: uuid.UUID
+    credential_type: str
+    issuing_body: str | None
+    issue_date: date | None
+    expiration_date: date | None
+    verification_status: str
+
+
+class ExpiringCredentialOut(BaseModel):
+    credential_id: uuid.UUID
+    caregiver_id: uuid.UUID
+    caregiver_name: str
+    credential_type: str
+    expiration_date: date
+    days_until_expiry: int
+    bucket: int
+    already_expired: bool

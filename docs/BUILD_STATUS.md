@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-29
-**Assessed by:** initial build
+**Assessed by:** build increment 2 (M1, M2, M4)
 
 ---
 
@@ -19,9 +19,9 @@ intentions.
 | | |
 |---|---|
 | Phase | 1 — AI Workforce Engine |
-| Milestone reached | **M0 (Foundation), plus the M3 scheduling/EVV core** |
+| Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 119 passing against a real PostgreSQL instance |
+| Tests | 176 passing against a real PostgreSQL instance |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **None.** No web admin app, no caregiver mobile app |
 | Compliance review | **Not performed** |
@@ -37,10 +37,10 @@ ranking, ambient extraction, and claim scrubbing are all core to the roadmap.
 | Milestone | Target | Status |
 |---|---|---|
 | **M0 — Foundation** | Month 1 | **Done.** Tenant/agency model, auth, RBAC, CI/CD, containerized local stack |
-| **M1 — Recruiting alpha** | Month 3 | **Schema only.** `job_posting` and `applicant_profile` exist with the explainability constraint; no endpoints, no job-board integration |
-| **M2 — Onboarding & credentialing** | Month 5 | **Partial.** `caregiver`, `credential`, `screening_request` tables; exclusion-check endpoint and hard scheduling gate are live. No vendor integration, no digital paperwork, no credentialing dashboard |
-| **M3 — Scheduling & EVV core** | Month 7 | **Substantially done, minus the mobile client.** Care plans, RRULE visit generation, assignment with compliance gates, clock-in/out, EVV adapter layer, transmission worker with backoff and escalation |
-| **M4 — AI ranking + gap-fill** | Month 8 | **Not started.** Schema is ready (`ranking_score`, `ranking_factors`, `ranking_model_version`) |
+| **M1 — Recruiting alpha** | Month 3 | **Backend done.** Job postings, normalized applicant intake, guarded stage transitions, applicant→caregiver hire, funnel report with conversion. No job-board integration yet |
+| **M2 — Onboarding & credentialing** | Month 5 | **Mostly done.** Credential CRUD, expiration dashboard with 7/30/60-day buckets, exclusion-check endpoint and hard scheduling gate. No vendor integration, no digital onboarding paperwork |
+| **M3 — Scheduling & EVV core** | Month 7 | **Backend done.** Care plans, RRULE visit generation, assignment with compliance gates, clock-in/out, EVV adapter layer, transmission worker with backoff and escalation |
+| **M4 — AI ranking + gap-fill** | Month 8 | **Backend done.** Explainable ranking for applicants and shift matching, gap detection, fair-hiring feature allowlist, bias-audit tooling |
 | **M5 — Phase 1 GA** | Month 9 | **Not started.** Requires M1–M4, both clients, and compliance sign-off |
 
 ## What is built
@@ -77,6 +77,46 @@ Phase 2's copilot and Phase 3's scrubber extend it rather than reimplementing it
 visit rules; per-agency enable/severity/threshold configuration; one failing rule cannot
 suppress the others.
 
+### Recruiting and ranking
+- Job postings; applicant intake normalized regardless of source, so no job board's schema
+  reaches the domain model.
+- Guarded pipeline transitions — a rejected applicant is not silently revived, and `hired` is
+  terminal. Hiring converts an applicant into a caregiver in `onboarding` with
+  `exclusion_check_status = not_run`: being hired and being clearable for a Medicaid visit
+  are separate events.
+- Funnel report with stage-to-stage conversion, counted cumulatively so rejected applicants
+  still count at the top and the rates mean something.
+- **Explainable ranking** for both applicants and shift matching, sharing one scorer. Every
+  score carries its top three factors with human-readable rationales; a score without factors
+  is rejected by a database check constraint, not merely by convention.
+
+### Fair hiring
+`06_Compliance_and_Regulatory_Requirements.md` Section 5 is enforced structurally rather than
+by review:
+- A closed **feature allowlist**. Anything unrecognised is refused — a denylist would only
+  catch attributes someone thought to forbid.
+- Named **proxies** are refused alongside the attributes themselves: ZIP code, graduation
+  year, name, school, salary history, credit score, arrest record. Errors say *why*.
+- Validation lives inside the scorer, so no caller can route around it. Applicant intake has
+  no field for demographic data at all — the surest way to keep it out of the model.
+- **Bias-audit tooling**: adverse-impact ratios against the EEOC four-fifths screen, with a
+  minimum group size so an underpowered sample reports `insufficient_data` rather than a
+  meaningless pass. Demographic labels are supplied by the auditor from separately-held
+  voluntary data; nothing in the schema stores an applicant's race or sex.
+
+### Shift matching and gap-fill
+- Suggestions reuse `assert_assignable`, so a caregiver who would be refused at assignment is
+  never suggested. Showing a scheduler a name they cannot act on, mid gap-fill, is worse than
+  showing nothing.
+- Factors: certification match, drive-time proximity, availability, continuity of care, and
+  overtime headroom. Overtime is a warning, not a block — the scheduler decides.
+- Gap detection over unfilled visits starting soon, ordered most-urgent-first.
+
+### Credentialing
+Credential CRUD plus an expiration dashboard bucketed at 7/30/60 days. Already-expired
+credentials are surfaced rather than filtered out: they are the most urgent case, since the
+caregiver is unassignable right now.
+
 ### Schema
 All tables from `04_Data_Model_and_Schema.md` exist, in the documented migration order —
 including the Phase 2 and Phase 3 tables, which ship unused so that visits recorded today can
@@ -100,7 +140,10 @@ These are honest placeholders, not oversights:
 - **Caregiver mobile app** and **agency admin web app** — no client exists. This is the
   largest remaining gap in Phase 1, and the caregiver app is called out in
   `09_UX_Design_and_User_Flows.md` as the highest-stakes surface in the product.
-- **AI/ML service** — no ranking, no inference. Schema and explainability constraint ready.
+- **Hosted-LLM inference** — ranking is a deterministic weighted scorer behind a `Scorer`
+  protocol. `03_Technical_Architecture.md` Section 5 makes that the intended first step and
+  warns against over-building; an LLM implementation slots in behind the same interface and
+  the same allowlist. Ambient documentation and claim scrubbing remain unbuilt.
 - **All third-party integrations** — background check, job boards, STT, clearinghouse,
   payroll, legacy EHR import.
 - **Phase 2 and Phase 3 behaviour** — tables only, by design.
@@ -120,21 +163,24 @@ These are honest placeholders, not oversights:
 |---|---|
 | Healthcare-compliance counsel review | **Not performed.** Required before Phase 1 launch |
 | BAAs with subprocessors | **None.** No PHI-touching vendor is integrated yet |
-| AI hiring bias audit | **N/A.** Epic 1.2.2 is not built. Required before it ships |
+| AI hiring bias audit | **Tooling built and tested; no audit has been run.** Epic 1.2.2 is live, so an audit on real outcomes plus employment-counsel review is required before it is used for real hiring decisions |
 | Incident-response plan | **Not written.** Required before Phase 1 launch |
 | SOC 2 | **Not started.** Several underlying controls exist (access management, audit logging, encryption); no evidence collection |
 | Penetration test | **Not performed** |
 
 ## Suggested next steps
 
-1. **Agency admin web app**, starting with the scheduling board and the compliance-exception
-   queue — the exception queue is the scheduler's default view per `09_UX...` principle 3,
-   and the backend for it already exists.
+1. **Agency admin web app**, starting with the scheduling board, the gap queue, and the
+   compliance-exception queue. The backend for all three exists; the exception queue is the
+   scheduler's default view per `09_UX...` principle 3.
 2. **Caregiver mobile app** with a genuine offline store, since clock-in is the highest-stakes
    surface and cannot be validated without a real client.
-3. **First real EVV integration** for one state, end to end through that vendor's sandbox —
-   this is the assumption most likely to be wrong, and the cheapest time to find out is now.
-4. **Engage compliance counsel.** `10_Roadmap_Milestones_Team_Plan.md` Section 5 is explicit
-   that this should begin immediately rather than when a question arises.
-5. **Recruiting endpoints (M1) and the AI ranking layer (M4)**, with the bias audit
-   completed before ranking ships — not after.
+3. **First real EVV integration** for one state, end to end through that vendor's sandbox.
+   This is the assumption most likely to be wrong, and the cheapest time to find out is now.
+4. **Engage compliance counsel**, and run the bias audit on real outcomes before the ranking
+   model influences actual hiring. The tooling exists; the audit does not.
+5. **Replace straight-line distance with real drive time.** US-1.4.2 asks for drive-time
+   optimization; `haversine_miles` understates travel in cities cut by rivers and highways,
+   so suggestions should not be trusted for routing decisions until a provider is wired in.
+6. **Job-board and background-check integrations**, behind the adapter interfaces
+   `07_Integration_Specifications.md` Section 1 requires.
