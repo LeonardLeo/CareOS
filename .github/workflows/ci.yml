@@ -1,0 +1,216 @@
+name: CI
+
+# Required checks per `docs/12_Engineering_Handoff_Guide.md` Section 4: lint, type-check,
+# unit tests, multi-tenant isolation tests, dependency/security scan, migration-safety check.
+#
+# The isolation job is separated out deliberately. `03_Technical_Architecture.md` Section 8
+# requires cross-tenant read/write attempts to pass before merge, and
+# `12_Engineering_Handoff_Guide.md` Section 3 names these as the tests most likely to be
+# skipped under time pressure. A separate job means a failure names itself in the checks
+# list rather than hiding inside a general "tests failed".
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  PYTHON_VERSION: "3.11"
+  CAREOS_ENVIRONMENT: test
+
+jobs:
+  lint:
+    name: Lint and type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install
+        working-directory: services/api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Ruff lint
+        working-directory: services/api
+        run: ruff check careos tests
+      - name: Ruff format check
+        working-directory: services/api
+        run: ruff format --check careos tests
+      - name: Type check
+        working-directory: services/api
+        run: mypy careos
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install
+        working-directory: services/api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run tests
+        working-directory: services/api
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGPASSWORD: postgres
+        run: pytest -q --junitxml=test-results.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: services/api/test-results.xml
+
+  tenant-isolation:
+    name: Multi-tenant isolation (required)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install
+        working-directory: services/api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Cross-tenant read/write attempts must fail
+        working-directory: services/api
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGPASSWORD: postgres
+        run: pytest tests/test_multitenant_isolation.py tests/test_rbac.py -v
+
+  migration-safety:
+    name: Migration safety
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: careos
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install
+        working-directory: services/api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Bootstrap roles
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d careos -v ON_ERROR_STOP=1 \
+            -f services/api/scripts/bootstrap_db.sql
+      - name: Upgrade, downgrade, and upgrade again
+        working-directory: services/api
+        env:
+          CAREOS_MIGRATION_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/careos
+        run: |
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
+      - name: Schema must match the models
+        working-directory: services/api
+        env:
+          CAREOS_MIGRATION_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/careos
+        run: |
+          # An empty autogenerate diff proves the migrations and the ORM models agree.
+          # Drift between them is how a table quietly ends up without RLS in production.
+          alembic check
+      - name: Reject destructive operations without sign-off
+        run: |
+          # Dropping a column or table in a compliance-sensitive system needs two-person
+          # approval (12_Engineering_Handoff_Guide.md Section 4). CI blocks it unless the
+          # migration carries an explicit, reviewable acknowledgement.
+          if git diff --name-only origin/${{ github.base_ref || 'main' }}...HEAD \
+               -- 'services/api/alembic/versions/*.py' | grep -q .; then
+            CHANGED=$(git diff --name-only origin/${{ github.base_ref || 'main' }}...HEAD \
+                      -- 'services/api/alembic/versions/*.py')
+            for f in $CHANGED; do
+              if grep -qE '^\s*op\.(drop_table|drop_column)\(' "$f" \
+                 && ! grep -q 'DESTRUCTIVE-MIGRATION-APPROVED' "$f"; then
+                echo "::error file=$f::Destructive migration without sign-off."
+                echo "Add a 'DESTRUCTIVE-MIGRATION-APPROVED: <reviewer>' comment explaining"
+                echo "the data-loss assessment, and get a second approval on the PR."
+                exit 1
+              fi
+            done
+          fi
+
+  security-scan:
+    name: Dependency and secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install scanners
+        run: python -m pip install --upgrade pip pip-audit
+      - name: Audit dependencies
+        working-directory: services/api
+        run: pip-audit --desc || exit 1
+      - name: Fail on committed secrets
+        run: |
+          # Credentials belong in the secrets manager (08_Security_Architecture.md §5).
+          # The local-only placeholders are allowed by name; anything else is not.
+          if git grep -nE '(SECRET|PASSWORD|TOKEN|API_KEY)\s*[:=]\s*["'"'"'][^"'"'"']{8,}' \
+               -- ':!*.md' ':!docker-compose.yml' ':!*/bootstrap_db.sql' \
+               ':!*/conftest.py' ':!*/test_*.py' \
+             | grep -vE 'dev-only-insecure-secret-change-me|careos_app|careos_auth'; then
+            echo "::error::Possible committed credential. Move it to the secrets manager."
+            exit 1
+          fi

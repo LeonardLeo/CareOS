@@ -1,0 +1,65 @@
+# Local development stack (`03_Technical_Architecture.md` Section 7).
+#
+# Postgres and Redis only, plus the API. Nothing here talks to a real EVV aggregator or
+# clearinghouse — the loopback EVV adapter handles that locally, and the registry refuses
+# to use it when CAREOS_ENVIRONMENT=production.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: careos
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Creates the careos_app / careos_auth roles on first boot. Postgres runs everything
+      # in this directory once, when the data volume is empty.
+      - ./services/api/scripts/bootstrap_db.sql:/docker-entrypoint-initdb.d/10-bootstrap.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d careos"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./services/api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      CAREOS_ENVIRONMENT: local
+      CAREOS_DATABASE_URL: postgresql+asyncpg://careos_app:careos_app@postgres:5432/careos
+      CAREOS_PRIVILEGED_DATABASE_URL: postgresql+asyncpg://careos_auth:careos_auth@postgres:5432/careos
+      CAREOS_MIGRATION_DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/careos
+      CAREOS_REDIS_URL: redis://redis:6379/0
+      # Local-only values. Deployed environments read these from the secrets manager
+      # (`08_Security_Architecture.md` Section 5) and never from a compose file.
+      CAREOS_JWT_SECRET: dev-only-insecure-secret-change-me
+      CAREOS_EVV_USE_SANDBOX: "true"
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "alembic upgrade head &&
+             python -m careos.scripts.seed_reference_data &&
+             uvicorn careos.main:app --host 0.0.0.0 --port 8000 --reload"
+    volumes:
+      - ./services/api/careos:/app/careos:ro
+
+volumes:
+  postgres_data:
