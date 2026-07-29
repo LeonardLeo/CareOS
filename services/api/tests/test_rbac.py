@@ -30,6 +30,7 @@ EXPECTED_ACCESS: dict[str, list[str]] = {
         "owner_admin",
         "scheduler",
     ],
+    "GET /v1/agencies/{agency_id}/compliance-reviews": ["auditor", "owner_admin"],
     "GET /v1/agencies/{agency_id}/users": ["auditor", "owner_admin"],
     "GET /v1/care-plans/{care_plan_id}": [
         "auditor",

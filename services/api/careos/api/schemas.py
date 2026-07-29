@@ -397,3 +397,16 @@ class ExpiringCredentialOut(BaseModel):
     days_until_expiry: int
     bucket: int
     already_expired: bool
+
+
+# --- Compliance reviews (06_Compliance Section 9) ----------------------------------------
+
+
+class ReviewStatusOut(BaseModel):
+    review_type: str
+    last_performed_on: date | None
+    last_outcome: str | None
+    next_due_on: date | None
+    is_overdue: bool
+    #: Distinct from overdue, and more serious: this review has never been run at all.
+    never_performed: bool

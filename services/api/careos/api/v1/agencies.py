@@ -22,6 +22,7 @@ from careos.core.rbac import requires
 from careos.core.security import Principal
 from careos.modules.agency import service as agency_service
 from careos.modules.agency.models import Agency, AppUser, Role
+from careos.modules.audit import compliance_log
 
 router = APIRouter(tags=["agency"])
 
@@ -154,3 +155,32 @@ async def change_role(
         after_state={"role": payload.role.value},
     )
     return schemas.UserOut.model_validate(user)
+
+
+@router.get(
+    "/agencies/{agency_id}/compliance-reviews", response_model=list[schemas.ReviewStatusOut]
+)
+async def compliance_reviews(
+    agency_id: uuid.UUID,
+    principal: Principal = Depends(requires(Role.owner_admin, Role.auditor)),
+    session: AsyncSession = Depends(db_session),
+) -> list[schemas.ReviewStatusOut]:
+    """Standing of every compliance review this agency owes.
+
+    Enumerates the full cadence from `06_Compliance_and_Regulatory_Requirements.md` Section 9,
+    including reviews that have never been performed — those show as `never_performed` rather
+    than being absent, so a gap cannot hide behind an empty list.
+    """
+    _assert_own_agency(principal, agency_id)
+    statuses = await compliance_log.review_status(session)
+    return [
+        schemas.ReviewStatusOut(
+            review_type=s.review_type,
+            last_performed_on=s.last_performed_on,
+            last_outcome=s.last_outcome,
+            next_due_on=s.next_due_on,
+            is_overdue=s.is_overdue,
+            never_performed=s.never_performed,
+        )
+        for s in statuses
+    ]

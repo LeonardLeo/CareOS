@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-29
-**Assessed by:** build increment 2 (M1, M2, M4)
+**Assessed by:** build increment 3 (routing adapter, compliance review log)
 
 ---
 
@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 176 passing against a real PostgreSQL instance |
+| Tests | 193 passing against a real PostgreSQL instance |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **None.** No web admin app, no caregiver mobile app |
 | Compliance review | **Not performed** |
@@ -117,6 +117,14 @@ Credential CRUD plus an expiration dashboard bucketed at 7/30/60 days. Already-e
 credentials are surfaced rather than filtered out: they are the most urgent case, since the
 caregiver is unassignable right now.
 
+### Compliance operations
+`06_Compliance_and_Regulatory_Requirements.md` Section 9 sets a review cadence, and
+`12_Engineering_Handoff_Guide.md` Section 5 requires outcomes and dates recorded durably.
+Reviews are rows in `compliance_review`, so overdue reviews are computable rather than
+remembered. `GET /v1/agencies/{id}/compliance-reviews` enumerates the full cadence including
+reviews never performed — a gap shows as `never_performed` rather than being absent from the
+list. The bias audit writes its own outcome here when it runs.
+
 ### Schema
 All tables from `04_Data_Model_and_Schema.md` exist, in the documented migration order —
 including the Phase 2 and Phase 3 tables, which ship unused so that visits recorded today can
@@ -134,6 +142,7 @@ These are honest placeholders, not oversights:
 | **Service codes** | A handful of `T1019`-style rows | Populate per state and payer contract with a certified billing consultant |
 | **Object storage** | `*_s3_key` columns exist; nothing writes them | Encrypted S3 bucket plus an upload path |
 | **Redis** | In the compose stack, unused by the app | Wire up when caching or a durable queue is needed |
+| **Drive time** | `HaversineRoutingAdapter` — straight-line distance with a circuity correction, marked `is_estimate` throughout | Adequate for ranking candidates against each other; register a real routing provider before travel time is quoted to a caregiver or paid on a timesheet |
 
 ## Not started
 
@@ -163,7 +172,7 @@ These are honest placeholders, not oversights:
 |---|---|
 | Healthcare-compliance counsel review | **Not performed.** Required before Phase 1 launch |
 | BAAs with subprocessors | **None.** No PHI-touching vendor is integrated yet |
-| AI hiring bias audit | **Tooling built and tested; no audit has been run.** Epic 1.2.2 is live, so an audit on real outcomes plus employment-counsel review is required before it is used for real hiring decisions |
+| AI hiring bias audit | **Runnable and self-logging; no audit has been run on real outcomes.** `python -m careos.scripts.run_bias_audit` performs one and records it to the compliance log; it exits non-zero on adverse impact so it can gate a release. Requires demographic labels supplied separately, plus employment-counsel review |
 | Incident-response plan | **Not written.** Required before Phase 1 launch |
 | SOC 2 | **Not started.** Several underlying controls exist (access management, audit logging, encryption); no evidence collection |
 | Penetration test | **Not performed** |
@@ -179,8 +188,7 @@ These are honest placeholders, not oversights:
    This is the assumption most likely to be wrong, and the cheapest time to find out is now.
 4. **Engage compliance counsel**, and run the bias audit on real outcomes before the ranking
    model influences actual hiring. The tooling exists; the audit does not.
-5. **Replace straight-line distance with real drive time.** US-1.4.2 asks for drive-time
-   optimization; `haversine_miles` understates travel in cities cut by rivers and highways,
-   so suggestions should not be trusted for routing decisions until a provider is wired in.
+5. **Register a real routing provider.** The `RoutingAdapter` interface and registry
+   exist; only the haversine approximation is implemented. This is now a one-class change.
 6. **Job-board and background-check integrations**, behind the adapter interfaces
    `07_Integration_Specifications.md` Section 1 requires.

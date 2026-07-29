@@ -24,8 +24,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from careos.core.errors import NotFoundError
+from careos.integrations.routing.base import GeoPoint, RoutingAdapter
+from careos.integrations.routing.registry import get_routing_adapter
 from careos.modules.credentialing.models import Caregiver, Credential, EmploymentStatus
-from careos.modules.recruiting.ranking import Score, haversine_miles, shift_scorer
+from careos.modules.recruiting.ranking import Score, shift_scorer
 from careos.modules.scheduling.models import CarePlan, Client, ScheduledVisit, VisitStatus
 
 #: Weekly hours beyond which assigning another visit risks overtime. A default, not a legal
@@ -65,6 +67,7 @@ class _CaregiverContext:
     prior_visits_with_client: int
     valid_credentials: set[str]
     distance_miles: float | None
+    travel_minutes: float | None
 
 
 async def _committed_hours(session: AsyncSession, caregiver_id: uuid.UUID, around: Any) -> float:
@@ -100,6 +103,7 @@ async def _build_context(
     caregiver: Caregiver,
     visit: ScheduledVisit,
     client: Client,
+    routing: RoutingAdapter,
 ) -> _CaregiverContext:
     conflict = (
         (
@@ -144,15 +148,19 @@ async def _build_context(
     caregiver_lat, caregiver_lng = caregiver.geo_lat, caregiver.geo_lng
     client_lat, client_lng = client.geo_lat, client.geo_lng
     distance = None
+    travel_minutes = None
     if (
         caregiver_lat is not None
         and caregiver_lng is not None
         and client_lat is not None
         and client_lng is not None
     ):
-        distance = haversine_miles(
-            float(caregiver_lat), float(caregiver_lng), float(client_lat), float(client_lng)
+        estimate = await routing.estimate(
+            GeoPoint(float(caregiver_lat), float(caregiver_lng)),
+            GeoPoint(float(client_lat), float(client_lng)),
         )
+        distance = estimate.miles
+        travel_minutes = estimate.minutes
 
     return _CaregiverContext(
         caregiver=caregiver,
@@ -161,6 +169,7 @@ async def _build_context(
         prior_visits_with_client=prior,
         valid_credentials=valid,
         distance_miles=distance,
+        travel_minutes=travel_minutes,
     )
 
 
@@ -195,6 +204,7 @@ async def suggest_caregivers(
     visit: ScheduledVisit,
     limit: int = 10,
     overtime_threshold: float = DEFAULT_OVERTIME_THRESHOLD_HOURS,
+    routing: RoutingAdapter | None = None,
 ) -> list[CaregiverSuggestion]:
     """Rank caregivers who could actually take this visit.
 
@@ -202,6 +212,8 @@ async def suggest_caregivers(
     everything returned is safe to offer in one tap.
     """
     from careos.modules.scheduling.service import assert_assignable
+
+    routing = routing or get_routing_adapter()
 
     care_plan = await session.get(CarePlan, visit.care_plan_id)
     if care_plan is None:
@@ -241,7 +253,9 @@ async def suggest_caregivers(
         except Exception:  # noqa: BLE001 - any gate failure means "not offerable"
             continue
 
-        context = await _build_context(session, caregiver=caregiver, visit=visit, client=client)
+        context = await _build_context(
+            session, caregiver=caregiver, visit=visit, client=client, routing=routing
+        )
         if context.has_conflict:
             # Double-booking is refused at assignment, so never suggest it.
             continue
@@ -261,10 +275,11 @@ async def suggest_caregivers(
                 f"Assigning this visit would put them at ~{projected:.1f}h this week, "
                 f"above the {overtime_threshold:.0f}h overtime threshold"
             )
-        if context.distance_miles is not None and context.distance_miles > 30:
+        if context.travel_minutes is not None and context.travel_minutes > 45:
             warnings.append(
-                f"Client is ~{context.distance_miles:.0f} miles away, which may mean "
-                "significant unpaid travel time"
+                f"Estimated ~{context.travel_minutes:.0f} min travel "
+                f"(~{context.distance_miles:.0f} mi), which may mean significant unpaid "
+                "travel time"
             )
 
         suggestions.append(

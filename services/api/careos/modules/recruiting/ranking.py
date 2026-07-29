@@ -237,13 +237,17 @@ shift_scorer = WeightedSumScorer(weights=SHIFT_WEIGHTS)
 
 
 def haversine_miles(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    """Straight-line distance in miles.
+    """Straight-line distance in miles, for applicant-level proximity.
 
-    A stand-in for real drive time, which US-1.4.2 actually calls for. Straight-line distance
-    systematically understates travel in cities cut by rivers or highways, so this should be
-    replaced by a routing provider before the scheduler's suggestions are trusted in
-    production. It is adequate for ranking candidates relative to one another today.
+    Applicant ranking compares one candidate against every currently-open shift, so this
+    stays a cheap local calculation rather than going through the routing adapter — that
+    would be one provider call per candidate per open shift. Shift *matching*, which scores a
+    roster against a single visit, does use the adapter and reports real travel time
+    (`careos.integrations.routing`).
+
+    Delegates to the routing module so there is one implementation of the formula.
     """
-    from careos.modules.compliance_rules.evv_rules import haversine_meters
+    from careos.integrations.routing.base import GeoPoint
+    from careos.integrations.routing.base import haversine_miles as _haversine
 
-    return haversine_meters(lat1, lng1, lat2, lng2) / 1609.344
+    return _haversine(GeoPoint(lat1, lng1), GeoPoint(lat2, lng2))

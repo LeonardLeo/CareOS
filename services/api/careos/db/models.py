@@ -9,6 +9,7 @@ from __future__ import annotations
 from careos.db.base import Base
 from careos.modules.agency import idempotency_models
 from careos.modules.agency import models as agency_models
+from careos.modules.audit import compliance_log_models
 from careos.modules.audit import models as audit_models
 from careos.modules.billing import models as billing_models
 from careos.modules.credentialing import models as credentialing_models
@@ -72,6 +73,7 @@ __all__ = [
     "agency_models",
     "assert_every_table_is_classified",
     "audit_models",
+    "compliance_log_models",
     "billing_models",
     "credentialing_models",
     "documentation_models",

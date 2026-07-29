@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     # --- Cache / queues -------------------------------------------------------
     redis_url: str = "redis://localhost:6379/0"
 
+    # --- Routing --------------------------------------------------------------
+    #: Travel-time provider. "haversine" is a distance approximation, adequate for
+    #: ranking candidates against each other but not for quoting or paying travel time.
+    routing_adapter: str = "haversine"
+
     # --- Auth -----------------------------------------------------------------
     jwt_secret: str = Field(default="dev-only-insecure-secret-change-me")
     jwt_algorithm: str = "HS256"
