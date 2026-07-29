@@ -24,6 +24,7 @@ from careos.api import schemas
 from careos.api.deps import db_session
 from careos.core import idempotency
 from careos.core.audit import AuditAction, record_audit
+from careos.core.crypto import decrypt_field
 from careos.core.errors import NotFoundError, PermissionDeniedError
 from careos.core.rbac import requires
 from careos.core.security import Principal
@@ -34,6 +35,8 @@ from careos.modules.scheduling import exceptions_service, matching
 from careos.modules.scheduling import service as scheduling_service
 from careos.modules.scheduling.models import (
     CaptureMethod,
+    CarePlan,
+    Client,
     EVVRecord,
     ScheduledVisit,
     TransmissionStatus,
@@ -120,6 +123,95 @@ async def list_visits(
         items=[schemas.VisitOut.model_validate(v) for v in rows],
         page=schemas.Page(page=page, page_size=page_size, total=total),
     )
+
+
+@router.get("/my-visits", response_model=list[schemas.MyVisitOut])
+async def my_visits(
+    principal: Principal = Depends(requires(Role.caregiver)),
+    session: AsyncSession = Depends(db_session),
+    date_from: date | None = Query(default=None, alias="from"),
+    date_to: date | None = Query(default=None, alias="to"),
+) -> list[schemas.MyVisitOut]:
+    """The caller's own visits, with the client detail needed to actually perform them.
+
+    This exists because `GET /visits` cannot serve the caregiver app. A caregiver is not
+    permitted on `GET /clients/{id}` — correctly, since that returns the full record — and
+    `VisitOut` carries only a `care_plan_id`. Between them the app could tell a caregiver
+    that they have a visit at 09:00 without being able to say for whom or where, which is
+    not a schedule.
+
+    Rather than widen the client endpoint, this returns the narrow projection in
+    `MyVisitClientOut` for visits already assigned to the caller. Caregiver role only: the
+    query is scoped by `principal.caregiver_id`, which no request field can influence, so
+    "mine" is not something a caller can redefine.
+
+    The whole window is returned unpaginated by design. The app stores these for offline use,
+    and a page boundary in the middle of a caregiver's day would leave part of it unavailable
+    exactly when connectivity is gone.
+    """
+    if principal.caregiver_id is None:
+        # Unreachable through the role gate above, which is the point: a caregiver token
+        # without a caregiver_id would silently match every visit with a NULL caregiver_id
+        # — i.e. the agency's unassigned work — so this fails loudly instead.
+        raise PermissionDeniedError("This caregiver account is not linked to a caregiver record")
+
+    filters = [ScheduledVisit.caregiver_id == principal.caregiver_id]
+    if date_from is not None:
+        filters.append(func.date(ScheduledVisit.scheduled_start) >= date_from)
+    if date_to is not None:
+        filters.append(func.date(ScheduledVisit.scheduled_start) <= date_to)
+
+    rows = (
+        (
+            await session.execute(
+                select(ScheduledVisit, CarePlan, Client, EVVRecord)
+                .join(CarePlan, CarePlan.id == ScheduledVisit.care_plan_id)
+                .join(Client, Client.id == CarePlan.client_id)
+                .outerjoin(EVVRecord, EVVRecord.scheduled_visit_id == ScheduledVisit.id)
+                .where(*filters)
+                .order_by(ScheduledVisit.scheduled_start)
+            )
+        )
+        .unique()
+        .all()
+    )
+
+    out = [
+        schemas.MyVisitOut(
+            id=visit.id,
+            care_plan_id=visit.care_plan_id,
+            scheduled_start=visit.scheduled_start,
+            scheduled_end=visit.scheduled_end,
+            status=visit.status.value,
+            service_type_code=visit.service_type_code,
+            service_state=visit.service_state,
+            client=schemas.MyVisitClientOut(
+                id=client.id,
+                legal_name=client.legal_name,
+                address=decrypt_field(client.address_encrypted),
+                geo_lat=client.geo_lat,
+                geo_lng=client.geo_lng,
+            ),
+            authorized_tasks=care_plan.authorized_tasks,
+            clock_in_time=evv.clock_in_time if evv else None,
+            clock_out_time=evv.clock_out_time if evv else None,
+        )
+        for visit, care_plan, client, evv in rows
+    ]
+
+    # One audit row for the request rather than one per visit. The event being recorded is
+    # "this caregiver opened their schedule", and the visit ids are in the details, so a
+    # per-visit fan-out would add rows without adding facts.
+    await record_audit(
+        session,
+        principal=principal,
+        agency_id=principal.agency_id,
+        action=AuditAction.caregiver_schedule_viewed,
+        entity_type="caregiver",
+        entity_id=principal.caregiver_id,
+        after_state={"visit_ids": [str(v.id) for v in out], "visit_count": len(out)},
+    )
+    return out
 
 
 # Registered before /visits/{visit_id}: FastAPI matches routes in declaration order, so a

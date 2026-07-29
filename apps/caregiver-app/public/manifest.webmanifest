@@ -1,0 +1,21 @@
+{
+  "name": "CareOS Caregiver",
+  "short_name": "CareOS",
+  "description": "Your schedule and clock-in, working with or without signal",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#12140f",
+  "theme_color": "#12140f",
+  "lang": "en",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

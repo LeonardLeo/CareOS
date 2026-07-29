@@ -1,0 +1,359 @@
+/**
+ * Outbox behaviour under the conditions this app exists for.
+ *
+ * These are the tests that matter most in the repository. A bug here does not produce a broken
+ * screen — it produces a caregiver who worked a shift the payroll system has no record of, or
+ * a duplicate EVV transmission that the state aggregator rejects and an agency has to
+ * reconcile by hand. So each test names the real-world situation it stands for.
+ */
+
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  ATTEMPTS_BEFORE_ESCALATION,
+  Outbox,
+  type OutboxAction,
+  type OutboxStorage,
+  type OutboxTransport,
+  type SendOutcome,
+  backoffFor,
+  isEscalated,
+} from "../src/lib/outbox";
+
+class MemoryStorage implements OutboxStorage {
+  rows = new Map<string, OutboxAction>();
+  private sequence = 0;
+
+  async all(): Promise<OutboxAction[]> {
+    return [...this.rows.values()];
+  }
+  async put(action: OutboxAction): Promise<void> {
+    this.rows.set(action.clientLocalUuid, action);
+  }
+  async delete(id: string): Promise<void> {
+    this.rows.delete(id);
+  }
+  async nextSequence(): Promise<number> {
+    this.sequence += 1;
+    return this.sequence;
+  }
+}
+
+class ScriptedTransport implements OutboxTransport {
+  sent: OutboxAction[] = [];
+  constructor(private outcomes: SendOutcome[] = []) {}
+
+  async send(action: OutboxAction): Promise<SendOutcome> {
+    this.sent.push({ ...action });
+    return this.outcomes.shift() ?? { status: "accepted" };
+  }
+}
+
+let clock = new Date("2026-07-29T09:00:00.000Z");
+const now = () => clock;
+let counter = 0;
+const uuid = () => `uuid-${++counter}`;
+
+beforeEach(() => {
+  clock = new Date("2026-07-29T09:00:00.000Z");
+  counter = 0;
+});
+
+function makeOutbox(transport: OutboxTransport, storage = new MemoryStorage()) {
+  return { outbox: new Outbox(storage, transport, now, uuid), storage };
+}
+
+describe("queueing", () => {
+  it("stores the action before anything is sent, so a dead phone has not lost the clock-in", async () => {
+    // The transport is never called here at all — queue() must not depend on it.
+    const transport = new ScriptedTransport();
+    const { outbox, storage } = makeOutbox(transport);
+
+    await outbox.queue({
+      kind: "clock_in",
+      visitId: "visit-1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: { lat: 40.7, lng: -74 },
+    });
+
+    expect(transport.sent).toHaveLength(0);
+    expect(storage.rows.size).toBe(1);
+    expect([...storage.rows.values()][0]!.syncedAt).toBeNull();
+  });
+
+  it("records the moment of the tap, not the moment of delivery", async () => {
+    const { outbox } = makeOutbox(new ScriptedTransport());
+    const tappedAt = "2026-07-29T09:00:00.000Z";
+
+    const action = await outbox.queue({
+      kind: "clock_in",
+      visitId: "visit-1",
+      timestamp: tappedAt,
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+
+    // Two hours pass in a basement before a signal returns.
+    clock = new Date("2026-07-29T11:00:00.000Z");
+    await outbox.flush();
+
+    // For EVV the visit began when the caregiver arrived. Delivery time is irrelevant.
+    expect(action.timestamp).toBe(tappedAt);
+  });
+
+  it("gives every action a distinct dedup key", async () => {
+    const { outbox } = makeOutbox(new ScriptedTransport());
+    const a = await outbox.queue({
+      kind: "clock_in",
+      visitId: "v1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+    const b = await outbox.queue({
+      kind: "clock_out",
+      visitId: "v1",
+      timestamp: "2026-07-29T10:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+    expect(a.clientLocalUuid).not.toBe(b.clientLocalUuid);
+  });
+
+  it("keeps a clock-in without a location fix, marked with why", async () => {
+    // The no-GPS path is a first-class capture method, not a failure (US-1.4.3).
+    const { outbox } = makeOutbox(new ScriptedTransport());
+    const action = await outbox.queue({
+      kind: "clock_in",
+      visitId: "v1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "manual_exception",
+      geo: null,
+      exceptionReason: "No location fix available (indoors or no signal)",
+    });
+
+    expect(action.geo).toBeNull();
+    expect(action.captureMethod).toBe("manual_exception");
+    expect(action.exceptionReason).toContain("indoors");
+  });
+});
+
+describe("flushing", () => {
+  it("sends in the order the caregiver acted", async () => {
+    const transport = new ScriptedTransport();
+    const { outbox } = makeOutbox(transport);
+
+    await outbox.queue({
+      kind: "clock_in",
+      visitId: "v1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+    await outbox.queue({
+      kind: "clock_out",
+      visitId: "v1",
+      timestamp: "2026-07-29T10:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+
+    await outbox.flush();
+
+    expect(transport.sent.map((a) => a.kind)).toEqual(["clock_in", "clock_out"]);
+  });
+
+  it("stops at the first unreachable action instead of skipping past it", async () => {
+    // A clock-out that arrives before its clock-in would be rejected on the merits, turning a
+    // temporary network problem into permanent lost data. One barrier prevents that.
+    const transport = new ScriptedTransport([{ status: "unreachable", message: "offline" }]);
+    const { outbox } = makeOutbox(transport);
+
+    await outbox.queue({
+      kind: "clock_in",
+      visitId: "v1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+    await outbox.queue({
+      kind: "clock_out",
+      visitId: "v1",
+      timestamp: "2026-07-29T10:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+
+    const summary = await outbox.flush();
+
+    expect(transport.sent.map((a) => a.kind)).toEqual(["clock_in"]);
+    expect(summary.accepted).toBe(0);
+    expect(summary.deferred).toBe(2);
+  });
+
+  it("retries a deferred action on the next flush and then succeeds", async () => {
+    const transport = new ScriptedTransport([
+      { status: "unreachable", message: "offline" },
+      { status: "accepted" },
+    ]);
+    const { outbox } = makeOutbox(transport);
+
+    await outbox.queue({
+      kind: "clock_in",
+      visitId: "v1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+
+    await outbox.flush();
+    expect(await outbox.pending()).toHaveLength(1);
+
+    await outbox.flush();
+    expect(await outbox.pending()).toHaveLength(0);
+    // Sent twice; the server dedups on the idempotency key, which is why this is safe.
+    expect(transport.sent).toHaveLength(2);
+    expect(transport.sent[0]!.clientLocalUuid).toBe(transport.sent[1]!.clientLocalUuid);
+  });
+
+  it("reuses one dedup key across every retry of the same action", async () => {
+    // This is the property that makes replay safe. If the key changed per attempt, a request
+    // that actually succeeded but whose response was lost would clock the caregiver in twice.
+    const transport = new ScriptedTransport([
+      { status: "unreachable", message: "timeout" },
+      { status: "unreachable", message: "timeout" },
+      { status: "accepted" },
+    ]);
+    const { outbox } = makeOutbox(transport);
+
+    await outbox.queue({
+      kind: "clock_in",
+      visitId: "v1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+
+    await outbox.flush();
+    await outbox.flush();
+    await outbox.flush();
+
+    const keys = new Set(transport.sent.map((a) => a.clientLocalUuid));
+    expect(transport.sent).toHaveLength(3);
+    expect(keys.size).toBe(1);
+  });
+
+  it("does not resend an action the server already accepted", async () => {
+    const transport = new ScriptedTransport();
+    const { outbox } = makeOutbox(transport);
+
+    await outbox.queue({
+      kind: "clock_in",
+      visitId: "v1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+
+    await outbox.flush();
+    await outbox.flush();
+    await outbox.flush();
+
+    expect(transport.sent).toHaveLength(1);
+  });
+});
+
+describe("failures that need a human", () => {
+  it("stops retrying a rejected action but never deletes it", async () => {
+    // A 4xx will not become a 2xx. But the record that the caregiver acted is exactly what an
+    // agency needs when reconciling a disputed timesheet, so it stays on the device.
+    const transport = new ScriptedTransport([
+      { status: "rejected", message: "Visit is not assigned to you" },
+    ]);
+    const { outbox, storage } = makeOutbox(transport);
+
+    await outbox.queue({
+      kind: "clock_in",
+      visitId: "v1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+
+    const summary = await outbox.flush();
+    expect(summary.rejected).toBe(1);
+    expect(storage.rows.size).toBe(1);
+
+    const stored = [...storage.rows.values()][0]!;
+    expect(stored.lastError).toBe("Visit is not assigned to you");
+    expect(isEscalated(stored)).toBe(true);
+  });
+
+  it("escalates after a long outage rather than retrying forever in silence", async () => {
+    const outcomes: SendOutcome[] = Array.from({ length: ATTEMPTS_BEFORE_ESCALATION }, () => ({
+      status: "unreachable" as const,
+      message: "offline",
+    }));
+    const transport = new ScriptedTransport(outcomes);
+    const { outbox } = makeOutbox(transport);
+
+    await outbox.queue({
+      kind: "clock_in",
+      visitId: "v1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+
+    for (let i = 0; i < ATTEMPTS_BEFORE_ESCALATION; i += 1) await outbox.flush();
+
+    const pending = await outbox.pending();
+    expect(pending).toHaveLength(1);
+    expect(isEscalated(pending[0]!)).toBe(true);
+  });
+
+  it("backs off further on each attempt, and stops growing at a ceiling", async () => {
+    expect(backoffFor(0)).toBe(0);
+    expect(backoffFor(1)).toBeGreaterThan(0);
+    for (let i = 1; i < 5; i += 1) {
+      expect(backoffFor(i + 1)).toBeGreaterThanOrEqual(backoffFor(i));
+    }
+    // A caregiver's battery has to last the shift, so the interval plateaus.
+    expect(backoffFor(50)).toBe(backoffFor(5));
+  });
+});
+
+describe("pruning", () => {
+  it("forgets synced actions once the UI no longer needs them, keeping unsynced ones", async () => {
+    const transport = new ScriptedTransport([
+      { status: "accepted" },
+      { status: "unreachable", message: "offline" },
+    ]);
+    const { outbox, storage } = makeOutbox(transport);
+
+    await outbox.queue({
+      kind: "clock_in",
+      visitId: "v1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+    await outbox.flush();
+
+    await outbox.queue({
+      kind: "clock_out",
+      visitId: "v1",
+      timestamp: "2026-07-29T10:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+    await outbox.flush();
+
+    clock = new Date("2026-07-29T12:00:00.000Z");
+    const pruned = await outbox.pruneSynced();
+
+    expect(pruned).toBe(1);
+    expect(storage.rows.size).toBe(1);
+    expect([...storage.rows.values()][0]!.kind).toBe("clock_out");
+  });
+});

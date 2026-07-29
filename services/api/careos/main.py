@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.middleware.cors import CORSMiddleware
 
 from careos.api.deps import authenticate
 from careos.api.v1 import agencies, auth, caregivers, clients, recruiting, visits
@@ -51,6 +52,24 @@ def create_app() -> FastAPI:
             "Phase 1 — AI Workforce Engine."
         ),
         lifespan=lifespan,
+    )
+
+    # Added for the caregiver app, which — unlike the admin app — calls this API from the
+    # device rather than from its own server, because an on-device outbox has to be able to
+    # replay a clock-in itself. `allow_credentials` stays False: this API authenticates with a
+    # bearer header, not cookies, so there is nothing to gain from it and enabling it would
+    # forbid the explicit-origin checks below from ever being relaxed safely.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=get_settings().cors_allowed_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        # Idempotency-Key is not a CORS-safelisted header, so without naming it here every
+        # clock-in from a browser would fail its preflight — silently, since the request never
+        # reaches a handler that could report why.
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
+        expose_headers=["X-Request-ID"],
+        max_age=600,
     )
 
     @app.middleware("http")

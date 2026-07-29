@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-29
-**Assessed by:** build increment 6 (client management, exception queue, CI repair)
+**Assessed by:** build increment 7 (caregiver app — offline-first EVV)
 
 ---
 
@@ -21,9 +21,9 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 203 passing against a real PostgreSQL instance; admin web app type-checks and builds |
+| Tests | 211 API tests against a real PostgreSQL instance, 13 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
 | Lint / types | `ruff` and `mypy` clean |
-| Clients | **Admin web app built and working.** No caregiver mobile app |
+| Clients | **Admin web app and caregiver app both built and working.** Caregiver app is an installable PWA, not React Native — see below |
 | Compliance review | **Not performed** |
 
 The stack choice between TypeScript/NestJS and Python/FastAPI was left open by
@@ -39,7 +39,7 @@ ranking, ambient extraction, and claim scrubbing are all core to the roadmap.
 | **M0 — Foundation** | Month 1 | **Done.** Tenant/agency model, auth, RBAC, CI/CD, containerized local stack |
 | **M1 — Recruiting alpha** | Month 3 | **Backend done.** Job postings, normalized applicant intake, guarded stage transitions, applicant→caregiver hire, funnel report with conversion. No job-board integration yet |
 | **M2 — Onboarding & credentialing** | Month 5 | **Mostly done.** Credential CRUD, expiration dashboard with 7/30/60-day buckets, exclusion-check endpoint and hard scheduling gate. No vendor integration, no digital onboarding paperwork |
-| **M3 — Scheduling & EVV core** | Month 7 | **Backend done.** Care plans, RRULE visit generation, assignment with compliance gates, clock-in/out, EVV adapter layer, transmission worker with backoff and escalation |
+| **M3 — Scheduling & EVV core** | Month 7 | **Done, both ends.** Care plans, RRULE visit generation, assignment with compliance gates, clock-in/out, EVV adapter layer, transmission worker with backoff and escalation. Caregiver app closes the loop: offline clock-in/out with an on-device outbox, verified exactly-once |
 | **M4 — AI ranking + gap-fill** | Month 8 | **Backend done.** Explainable ranking for applicants and shift matching, gap detection, fair-hiring feature allowlist, bias-audit tooling |
 | **M5 — Phase 1 GA** | Month 9 | **Not started.** Requires M1–M4, both clients, and compliance sign-off |
 
@@ -143,6 +143,57 @@ Credential CRUD plus an expiration dashboard bucketed at 7/30/60 days. Already-e
 credentials are surfaced rather than filtered out: they are the most urgent case, since the
 caregiver is unassignable right now.
 
+### Caregiver app
+The surface `09_UX_Design_and_User_Flows.md` design principle 1 calls the highest-stakes one in
+the product. Flow B works end to end: open the app, see today's schedule, tap into a visit,
+clock in, clock out.
+
+**Built as an installable PWA rather than React Native, and that is a deviation worth stating
+plainly.** `03_Technical_Architecture.md` Section 2 names "React Native or Flutter" — but the
+same row says the offline-first library choice, *not the framework*, is the critical decision.
+A React Native app cannot be run or verified in this environment at all: with no simulator, an
+offline clock-in path would have been shipped unexecuted, which on this surface means shipping
+an unverified claim about whether caregivers get paid. The PWA runs in a real browser, so the
+offline behaviour is tested rather than asserted. Everything in `src/lib` — the outbox, the
+sync engine, the retry policy — is free of React and DOM imports and reusable verbatim behind a
+SQLite adapter if the app is later rebuilt in React Native; the split `vitest.config.ts`
+enforces that boundary rather than trusting it.
+
+What holds it up:
+- **The outbox** (`src/lib/outbox.ts`). An action is written to IndexedDB *before* the UI
+  acknowledges it, carries a device-generated uuid used as both `client_local_uuid` and
+  `Idempotency-Key`, records the time of the tap rather than of delivery, and is never deleted
+  on failure. The flush stops at the first unreachable action rather than skipping past it,
+  because a clock-out arriving before its clock-in would be rejected on the merits and turn a
+  network problem into lost data. After repeated failures it escalates to "call the office"
+  instead of retrying in silence.
+- **Verified offline, not assumed.** 13 unit tests on the engine, and browser end-to-end tests
+  that cut the network for real, clock in, restore it, and assert against the API that the
+  visit synced. One test replays the same queued clock-in three times and asserts a single EVV
+  record with one id and one timestamp — the dedup demonstrated rather than inferred.
+- **Offline as a state, not an error.** A permanent connection bar, per-visit queued badges, and
+  a cold start with no signal that opens onto the cached day labelled with its age.
+- **The no-GPS path is first-class** (US-1.4.3). Location capture has an 8-second timeout and
+  never blocks a clock-in; a missing fix is recorded as `manual_exception` with a reason in
+  words an agency can act on, and the caregiver is told it saved either way.
+- **Designed for the stated user.** 17px body minimum, 56px touch targets, an 88px primary
+  action pinned in the thumb's reach, and AAA contrast (17.5:1 light, 16.1:1 dark) because
+  sunlight eats the 4.5:1 that passes an audit indoors. Every colour pair was run through a
+  WCAG check, not chosen by eye.
+- **English and Spanish** as a baseline, keyed by meaning with named interpolation so a
+  translation can reorder tokens.
+
+Honest limitations on this surface specifically:
+
+| Limitation | Detail |
+|---|---|
+| **Token reachable from JavaScript** | The admin app keeps its token in an httpOnly cookie; this one cannot, because the device replays its own queued writes. Mitigated with `sessionStorage` (not `localStorage`), no stored refresh token, and cached PHI wiped on sign-out — but it is a real reduction in XSS resistance, not an equivalent |
+| **Telephony (IVR) fallback** | `capture_method: telephony` is accepted by the API and modelled throughout; no phone system is wired up. A caregiver with no smartphone is not yet served |
+| **No push notifications** | Flow A step 4 (accept a shift offer in one tap) needs push and a shift-offer endpoint; neither exists. iOS also only delivers web push to a home-screen-installed PWA, which affects the framework decision above and should be re-examined before launch |
+| **No background sync** | The queue flushes when the app is foregrounded or regains connectivity, not while closed. A caregiver who clocks out and force-quits before regaining signal syncs on next open |
+| **Remote wipe is local-only** | `08_Security_Architecture.md` Section 6 wants an admin to cut off a terminated caregiver including cached PHI. Sign-out and a rejected token clear the local cache; server-side session revocation is not built |
+| **Not verified on real devices** | Tested in Chromium at a phone viewport. No iOS Safari, no Android Chrome, no real GPS, no genuinely degraded network |
+
 ### Agency admin web app
 Next.js App Router, server-rendered, with the design-token pass `09_UX...` Section 5 asks for
 done before any screen. Charts are chosen by the data's job — a meter for coverage, an
@@ -202,9 +253,11 @@ These are honest placeholders, not oversights:
 
 ## Not started
 
-- **Caregiver mobile app** — the largest remaining Phase 1 gap, and
-  `09_UX_Design_and_User_Flows.md` calls it the highest-stakes surface in the product.
-  Offline clock-in cannot be validated without it.
+- **Native mobile packaging.** The caregiver app is built and its offline clock-in is verified
+  (see above), but as an installable PWA rather than a React Native build. App Store / Play
+  distribution, iOS web push, and background sync all depend on revisiting that.
+- **Telephony (IVR) clock-in.** Accepted by the API, modelled end to end, no phone system
+  attached. Until it exists, a caregiver without a smartphone cannot clock in at all.
 - **Hosted-LLM inference** — ranking is a deterministic weighted scorer behind a `Scorer`
   protocol. `03_Technical_Architecture.md` Section 5 makes that the intended first step and
   warns against over-building; an LLM implementation slots in behind the same interface and
@@ -235,8 +288,10 @@ These are honest placeholders, not oversights:
 
 ## Suggested next steps
 
-1. **Caregiver mobile app** with a genuine offline store, since clock-in is the
-   highest-stakes surface and cannot be validated without a real client.
+1. **Run the caregiver app on real devices.** It is verified in Chromium at a phone viewport
+   against a real API, which is a much stronger position than unexecuted code but is not the
+   same as iOS Safari, a real GPS chip, and a genuinely bad connection. Decide native
+   packaging at the same time, since iOS push and background sync depend on it.
 2. **User administration in the admin app.** Client management, care-plan authoring, and the
    compliance-exception queue now exist as first-class screens; inviting a user and changing a
    role still require calling the API directly, even though both endpoints exist.

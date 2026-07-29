@@ -226,6 +226,46 @@ class EVVStatusOut(ORMModel):
     is_compliant: bool
 
 
+class MyVisitClientOut(BaseModel):
+    """The client detail a caregiver needs in order to perform an assigned visit.
+
+    Deliberately narrower than `ClientOut`. HIPAA's minimum-necessary rule
+    (`08_Security_Architecture.md` Section 1) governs what this surface may carry: a caregiver
+    needs the name to greet the right person, the address to get there, and coordinates
+    because the geofence rule compares clock-in location against them. Date of birth is not
+    required to deliver a personal-care visit, so it is not returned here even though the
+    record holds it.
+    """
+
+    id: uuid.UUID
+    legal_name: str
+    address: str | None
+    geo_lat: float | None
+    geo_lng: float | None
+
+
+class MyVisitOut(BaseModel):
+    """One of the caller's own assigned visits, with everything the app needs offline.
+
+    The EVV state travels with the visit so the app can restore an in-progress visit after a
+    reload or a reinstall. Without it, a caregiver who clocked in and then lost the tab would
+    have no way to tell whether their clock-in exists, which is the one question this surface
+    must always be able to answer.
+    """
+
+    id: uuid.UUID
+    care_plan_id: uuid.UUID
+    scheduled_start: datetime
+    scheduled_end: datetime
+    status: str
+    service_type_code: str | None
+    service_state: str | None
+    client: MyVisitClientOut
+    authorized_tasks: list[Any]
+    clock_in_time: datetime | None
+    clock_out_time: datetime | None
+
+
 class ComplianceFindingOut(BaseModel):
     rule_key: str
     severity: str

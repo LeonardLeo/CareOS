@@ -67,6 +67,7 @@ EXPECTED_ACCESS: dict[str, list[str]] = {
         "scheduler",
     ],
     "GET /v1/job-postings": ["auditor", "owner_admin", "scheduler"],
+    "GET /v1/my-visits": ["caregiver"],
     "GET /v1/job-postings/{job_posting_id}/applicants": ["auditor", "owner_admin", "scheduler"],
     "GET /v1/reports/credential-expirations": [
         "auditor",

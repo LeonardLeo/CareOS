@@ -45,6 +45,9 @@ class AuditAction(enum.StrEnum):
     visit_assigned = "visit.assigned"
     visit_clock_in = "visit.clock_in"
     visit_clock_out = "visit.clock_out"
+    #: A caregiver opening their own schedule. It returns client names and addresses, so it is
+    #: a PHI read even though the caregiver is entitled to see it for their assigned visits.
+    caregiver_schedule_viewed = "visit.caregiver_schedule_viewed"
 
     evv_transmitted = "evv.transmitted"
     evv_acknowledged = "evv.acknowledged"
@@ -70,7 +73,9 @@ class AuditAction(enum.StrEnum):
 
 #: Actions that constitute access to another person's PHI and are therefore recorded even
 #: though they change nothing — HIPAA's audit-control requirement covers reads.
-_PHI_READ_ACTIONS: frozenset[AuditAction] = frozenset({AuditAction.client_viewed})
+_PHI_READ_ACTIONS: frozenset[AuditAction] = frozenset(
+    {AuditAction.client_viewed, AuditAction.caregiver_schedule_viewed}
+)
 
 
 async def record_audit(

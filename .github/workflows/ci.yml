@@ -270,3 +270,79 @@ jobs:
       - name: Build
         working-directory: apps/admin-web
         run: npm run build
+
+  caregiver-app:
+    name: Caregiver app (offline EVV)
+    runs-on: ubuntu-latest
+    # The offline clock-in path is the highest-stakes behaviour in Phase 1, and it is only
+    # meaningfully testable against a real API and a real browser: the exactly-once guarantee
+    # lives in the server's idempotency table, and the queueing lives in IndexedDB. So this job
+    # stands up Postgres and the API rather than stubbing either.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: careos
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/caregiver-app/package-lock.json
+
+      - name: Unit-test the sync engine
+        working-directory: apps/caregiver-app
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+
+      - name: Install and migrate the API
+        working-directory: services/api
+        env:
+          PGPASSWORD: postgres
+          # Reference data is migration-owned — the application roles hold SELECT only — so the
+          # seed connects with the migration credential, same as the seed script documents.
+          CAREOS_MIGRATION_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/careos
+        run: |
+          python -m pip install --upgrade pip "setuptools>=83.0.0"
+          pip install -e ".[dev]"
+          psql -h localhost -U postgres -d careos -v ON_ERROR_STOP=1 -f scripts/bootstrap_db.sql
+          alembic upgrade head
+          python -m careos.scripts.seed_reference_data
+      - name: Start the API
+        working-directory: services/api
+        env:
+          CAREOS_ENVIRONMENT: local
+        run: |
+          nohup uvicorn careos.main:app --port 8000 > /tmp/api.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8000/health && break
+            sleep 1
+          done
+          curl -fsS http://localhost:8000/health || { cat /tmp/api.log; exit 1; }
+
+      - name: Build the app and run the offline end-to-end tests
+        working-directory: apps/caregiver-app
+        run: |
+          npm run build
+          npx playwright install --with-deps chromium
+          npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: caregiver-app-screenshots
+          path: apps/caregiver-app/screenshots/

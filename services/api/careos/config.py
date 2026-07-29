@@ -35,6 +35,22 @@ class Settings(BaseSettings):
     # --- Cache / queues -------------------------------------------------------
     redis_url: str = "redis://localhost:6379/0"
 
+    # --- Browser clients ------------------------------------------------------
+    #: Origins allowed to call this API from a browser. The caregiver app needs this and the
+    #: admin app does not: the admin app calls from its own server, while the caregiver PWA
+    #: must call from the device so a service worker and an on-device queue can replay a
+    #: clock-in themselves.
+    #:
+    #: An explicit allowlist, never a wildcard. These requests carry a bearer token and the
+    #: responses carry PHI, so `*` would let any page a caregiver has open read their schedule.
+    #: Defaults cover the local dev ports only; a deployed environment must set this.
+    cors_allowed_origins: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ]
+
     # --- Routing --------------------------------------------------------------
     #: Travel-time provider. "haversine" is a distance approximation, adequate for
     #: ranking candidates against each other but not for quoting or paying travel time.
@@ -56,12 +72,33 @@ class Settings(BaseSettings):
         return self.environment == "production"
 
 
-@lru_cache
-def get_settings() -> Settings:
-    settings = Settings()
-    if settings.is_production and settings.jwt_secret.startswith("dev-only"):
+def validate_settings(settings: Settings) -> Settings:
+    """Refuse to run on a configuration that would be unsafe in the target environment.
+
+    Separate from `get_settings` so each guard can be tested against a constructed Settings
+    rather than only through an `lru_cache`d factory reading process environment — which is the
+    difference between these rules being verified and merely being written down.
+    """
+    if not settings.is_production:
+        return settings
+
+    if settings.jwt_secret.startswith("dev-only"):
         raise RuntimeError("CAREOS_JWT_SECRET must be set in production")
-    if settings.is_production and settings.evv_use_sandbox:
+    if settings.evv_use_sandbox:
         # Inverse guard: production must transmit to real aggregators.
         raise RuntimeError("CAREOS_EVV_USE_SANDBOX must be false in production")
+    if "*" in settings.cors_allowed_origins:
+        raise RuntimeError("CAREOS_CORS_ALLOWED_ORIGINS must not be a wildcard in production")
+    if any(
+        origin.startswith(("http://localhost", "http://127.0.0.1"))
+        for origin in settings.cors_allowed_origins
+    ):
+        # A localhost origin left in a production allowlist is a standing invitation: any page
+        # can host a listener on 127.0.0.1 and read a caregiver's schedule from a real token.
+        raise RuntimeError("CAREOS_CORS_ALLOWED_ORIGINS must not include localhost in production")
     return settings
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return validate_settings(Settings())

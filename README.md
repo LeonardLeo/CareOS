@@ -13,8 +13,11 @@ explains how the document set fits together and what to verify before writing co
 ## Current state
 
 **Phase 1 (AI Workforce Engine) — M0 through M4 complete on the backend, with a working
-agency admin web app.** The remaining Phase 1 gap is the caregiver mobile app, plus the
-compliance reviews that must happen before launch.
+agency admin web app and a working caregiver app.** Offline EVV clock-in is built and verified
+against a real API with the browser's network genuinely cut. The caregiver app is an installable
+PWA rather than a React Native build — a deviation from `03_Technical_Architecture.md` Section 2
+that is explained in BUILD_STATUS. Remaining before launch: real-device testing, telephony
+clock-in, and the compliance reviews.
 
 See [`docs/BUILD_STATUS.md`](docs/BUILD_STATUS.md) for what is built, what is deliberately
 stubbed, and what has not been started — assessed against the milestone table in
@@ -25,6 +28,9 @@ stubbed, and what has not been started — assessed against the milestone table 
 ```
 docs/                    The 13-document product and architecture set (source of truth)
 apps/admin-web/          Agency admin web app (Next.js 15, React 19, TypeScript)
+apps/caregiver-app/      Caregiver app — offline-first EVV (Vite, React 19, PWA)
+  src/lib/               Outbox and sync engine; no React or DOM imports, so a
+                         React Native shell could reuse it behind a SQLite adapter
 services/api/            Modular-monolith backend (Python 3.11, FastAPI, PostgreSQL)
   careos/
     api/                 HTTP layer — routers, schemas, dependencies
@@ -61,6 +67,19 @@ make dev              # API at http://localhost:8000/docs
 
 # Admin web app (needs the API running)
 cd apps/admin-web && npm install && npm run dev   # http://localhost:3000
+
+# Caregiver app (needs the API running)
+cd apps/caregiver-app && npm install && npm run dev   # http://localhost:3001
+```
+
+The caregiver app's offline behaviour only exists in a production build — the service worker is
+not registered by the dev server — so test it with `npm run build && npm run preview`, then use
+the browser's offline toggle.
+
+```bash
+cd apps/caregiver-app
+npm test              # sync-engine unit tests, no browser needed
+npm run test:e2e      # browser end-to-end, including genuinely-offline clock-in
 ```
 
 ```bash
@@ -106,6 +125,34 @@ monotone-lightness with ≥0.06 ΔL between steps in both modes. Dark mode is th
 re-stepped for the dark surface, not an automatic flip. Status colors are reserved — critical
 means "act on this" — and always ship with an icon or label, since colour alone is not a
 signal.
+
+## Caregiver app: how offline works
+
+This is the part of the product most likely to be got wrong, so the design is stated rather than
+left to be inferred.
+
+A clock-in is written to IndexedDB **before** the UI acknowledges it. The caregiver is told
+"saved on this phone — will send when you have signal", and the network is attempted afterwards.
+Everything else follows from that ordering:
+
+- **The recorded time is the tap, not the delivery.** A visit began when the caregiver arrived,
+  not when they next found a cell tower. For EVV that distinction is the whole point.
+- **Replay is safe.** Each action carries a device-generated uuid, sent as both
+  `client_local_uuid` and `Idempotency-Key`, and reused on every retry. A request that succeeded
+  but whose response was lost is indistinguishable from one that never arrived — so the device
+  retries, and the server recognises it. An end-to-end test delivers one clock-in three times
+  and asserts a single EVV record.
+- **The queue is ordered and stops at the first failure.** Sending a clock-out whose clock-in
+  has not landed would be rejected on its merits, turning a network problem into lost data.
+- **Nothing is dropped.** A rejected action stops being retried but is never deleted; it becomes
+  "call the office". A caregiver's record of work performed is not the app's to discard.
+- **No location is not a failure.** Location capture times out in 8 seconds and never blocks a
+  clock-in. A missing fix is recorded as `manual_exception` with a readable reason, which is
+  what `02_Product_Requirements_Document.md` US-1.4.3 asks for.
+
+The sync engine (`apps/caregiver-app/src/lib/`) imports no React and no DOM. Storage and
+transport are interfaces, so it is unit-testable without a browser and portable to a React
+Native shell with a SQLite-backed store.
 
 ## Architecture at a glance
 

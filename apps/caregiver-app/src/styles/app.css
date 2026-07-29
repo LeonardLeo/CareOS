@@ -1,0 +1,566 @@
+/**
+ * Caregiver app styles.
+ *
+ * This surface has a different job from the admin app, so it does not inherit its scale. The
+ * admin app is a console someone sits in front of for eight hours; this is used standing up,
+ * one-handed, outdoors, possibly by someone who is not a confident smartphone user
+ * (`09_UX_Design_and_User_Flows.md` design principle 1). That drives four decisions:
+ *
+ * - **Type starts at 17px, not 14.** Nothing in the app is below 15px. There is no dense mode.
+ * - **Touch targets are 56px minimum, and the primary action is 88px tall and full width**,
+ *   pinned to the bottom of the viewport where a thumb reaches without regripping the phone.
+ * - **Contrast is AAA on body text** (17.5:1 light, 16.1:1 dark), not AA. Direct sunlight eats
+ *   contrast, and 4.5:1 that passes an audit indoors can be unreadable on a doorstep. Every
+ *   pair below was run through a WCAG contrast check rather than chosen by eye.
+ * - **One thing is loud per screen.** On the visit screen that is the clock-in button; on the
+ *   schedule it is the next visit. Everything else is deliberately quiet.
+ *
+ * Colours carry meaning consistently and only three ways: green means done or go, amber means
+ * held on this device and not yet sent, red means a human needs to intervene. Amber is never
+ * used for anything else, because "waiting to sync" is the state a caregiver most needs to
+ * recognise at a glance without reading.
+ */
+
+:root {
+  --surface: #fbfbf9;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f0f1ec;
+  --ink: #14170f;
+  --ink-muted: #4f5544;
+  --border: #dcdfd4;
+  --border-strong: #b9bfae;
+
+  --accent: #1c6b3c;
+  --accent-press: #14512d;
+  --on-accent: #ffffff;
+
+  --queued-ink: #4a2f00;
+  --queued-surface: #fdf0d5;
+  --queued-border: #e2c48a;
+
+  --danger-ink: #9a1c1c;
+  --danger-surface: #fceaea;
+  --danger-border: #e8b4b4;
+
+  --done-ink: #1c6b3c;
+  --done-surface: #e6f2ea;
+  --done-border: #a8cfb8;
+
+  --text-xs: 0.9375rem; /* 15px — the floor */
+  --text-sm: 1rem;
+  --text-base: 1.0625rem; /* 17px — body */
+  --text-lg: 1.25rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 1.9375rem;
+  --text-3xl: 2.5rem;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 999px;
+
+  --touch-min: 56px;
+  --primary-action-height: 88px;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #12140f;
+    --surface-raised: #1a1d16;
+    --surface-sunken: #0d0f0b;
+    --ink: #eef0e8;
+    --ink-muted: #a8ae9b;
+    --border: #2b2f24;
+    --border-strong: #414636;
+
+    /* In dark mode the accent is a light step, so the label on it takes ink, not white. */
+    --accent: #8fd694;
+    --accent-press: #7cc082;
+    --on-accent: #0d1a11;
+
+    --queued-ink: #f2d9a8;
+    --queued-surface: #3a2c10;
+    --queued-border: #6b5220;
+
+    --danger-ink: #f2938a;
+    --danger-surface: #3a1a18;
+    --danger-border: #6b2f2b;
+
+    --done-ink: #8fd694;
+    --done-surface: #16291c;
+    --done-border: #2f5a3a;
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: #12140f;
+  --surface-raised: #1a1d16;
+  --surface-sunken: #0d0f0b;
+  --ink: #eef0e8;
+  --ink-muted: #a8ae9b;
+  --border: #2b2f24;
+  --border-strong: #414636;
+  --accent: #8fd694;
+  --accent-press: #7cc082;
+  --on-accent: #0d1a11;
+  --queued-ink: #f2d9a8;
+  --queued-surface: #3a2c10;
+  --queued-border: #6b5220;
+  --danger-ink: #f2938a;
+  --danger-surface: #3a1a18;
+  --danger-border: #6b2f2b;
+  --done-ink: #8fd694;
+  --done-surface: #16291c;
+  --done-border: #2f5a3a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  /* Room for the fixed connection bar at the top and the primary action at the bottom. */
+  padding-top: env(safe-area-inset-top);
+}
+
+#root {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Never remove focus rings on this surface: an external keyboard is one of the ways an
+   accessibility user drives it, and the ring is the only thing telling them where they are. */
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- Connection bar ------------------------------------------------------------ */
+
+/* Pinned, always present, never a transient toast. UX principle 2: offline is a state, not an
+   error, so it gets permanent screen real estate rather than a message that disappears before
+   a caregiver walking between buildings has read it. */
+.conn {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+}
+
+.conn--offline {
+  background: var(--queued-surface);
+  border-bottom-color: var(--queued-border);
+  color: var(--queued-ink);
+}
+
+.conn--pending {
+  background: var(--queued-surface);
+  border-bottom-color: var(--queued-border);
+  color: var(--queued-ink);
+}
+
+.conn__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+  flex: none;
+}
+
+.conn__left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.conn__retry {
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  min-height: 36px;
+}
+
+/* ---------- Layout ------------------------------------------------------------------- */
+
+.page {
+  padding: var(--space-4);
+  /* Clears the fixed primary action so the last card is never trapped underneath it. */
+  padding-bottom: calc(var(--primary-action-height) + var(--space-6) + env(safe-area-inset-bottom));
+  max-width: 34rem;
+  margin: 0 auto;
+}
+
+.page__title {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.02em;
+  margin: var(--space-3) 0 var(--space-1);
+}
+
+.page__sub {
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-5);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.muted {
+  color: var(--ink-muted);
+}
+
+.small {
+  font-size: var(--text-xs);
+}
+
+/* ---------- Visit card --------------------------------------------------------------- */
+
+/* A whole card is the tap target, not a link inside it. Aiming at a small link while walking
+   is the kind of precision this surface should never ask for. */
+.visit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  min-height: var(--touch-min);
+  color: inherit;
+}
+
+.visit:active {
+  background: var(--surface-sunken);
+}
+
+.visit--next {
+  border-left-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.visit--done {
+  border-left-color: var(--done-border);
+}
+
+.visit--queued {
+  border-left-color: var(--queued-border);
+}
+
+.visit__time {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.visit__name {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  margin-top: 2px;
+}
+
+.visit__meta {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  margin-top: var(--space-2);
+}
+
+/* ---------- Status chips ------------------------------------------------------------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  border: 1px solid transparent;
+}
+
+.chip--queued {
+  background: var(--queued-surface);
+  color: var(--queued-ink);
+  border-color: var(--queued-border);
+}
+
+.chip--done {
+  background: var(--done-surface);
+  color: var(--done-ink);
+  border-color: var(--done-border);
+}
+
+.chip--danger {
+  background: var(--danger-surface);
+  color: var(--danger-ink);
+  border-color: var(--danger-border);
+}
+
+/* ---------- Cards and fields --------------------------------------------------------- */
+
+.card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+.card__label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  margin-bottom: var(--space-2);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.field__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.field__input {
+  font: inherit;
+  font-size: var(--text-lg);
+  padding: var(--space-3) var(--space-4);
+  min-height: var(--touch-min);
+  background: var(--surface-raised);
+  color: var(--ink);
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+
+.field__input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.tasks {
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
+.tasks li {
+  margin-bottom: var(--space-2);
+}
+
+/* ---------- Primary action ----------------------------------------------------------- */
+
+/* Fixed to the bottom edge, full width, 88px tall. The thumb of a hand holding a phone rests
+   here; anything important placed at the top requires regripping, which people do one-handed
+   on a staircase. This is the loudest element in the app and there is only ever one. */
+.action-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--surface) 62%, transparent);
+}
+
+.action {
+  width: 100%;
+  min-height: var(--primary-action-height);
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+}
+
+.action:active {
+  background: var(--accent-press);
+}
+
+.action:disabled {
+  opacity: 0.55;
+}
+
+.action--secondary {
+  background: transparent;
+  color: var(--ink);
+  border: 2px solid var(--border-strong);
+  min-height: var(--touch-min);
+  font-size: var(--text-base);
+}
+
+.action--done {
+  background: var(--done-surface);
+  color: var(--done-ink);
+  border: 1px solid var(--done-border);
+}
+
+/* ---------- Notes -------------------------------------------------------------------- */
+
+.note {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+.note--queued {
+  background: var(--queued-surface);
+  color: var(--queued-ink);
+  border-color: var(--queued-border);
+}
+
+.note--danger {
+  background: var(--danger-surface);
+  color: var(--danger-ink);
+  border-color: var(--danger-border);
+}
+
+.note--done {
+  background: var(--done-surface);
+  color: var(--done-ink);
+  border-color: var(--done-border);
+}
+
+.note__title {
+  font-weight: var(--weight-semibold);
+  margin-bottom: var(--space-2);
+}
+
+/* Stacked lines in a note need separating. Rendered without this, the exception message read as
+   one paragraph — "No location — recorded as an exception Reason: … Your clock-in is saved
+   either way" — which is three distinct facts and should look like three. */
+.note .small + .small {
+  margin-top: var(--space-2);
+}
+
+/* ---------- Header ------------------------------------------------------------------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar__brand {
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.01em;
+}
+
+.topbar__brand span {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-regular);
+  color: var(--ink-muted);
+  letter-spacing: 0;
+}
+
+.iconbutton {
+  min-height: 44px;
+  min-width: 44px;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  color: var(--ink);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  background: transparent;
+  border: none;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  padding: 0;
+  margin-bottom: var(--space-2);
+}
+
+/* Honour a caregiver who has asked the OS to reduce motion — several do so precisely because
+   animation makes them queasy, and nothing here needs to move. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
