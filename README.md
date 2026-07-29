@@ -12,8 +12,9 @@ explains how the document set fits together and what to verify before writing co
 
 ## Current state
 
-**Phase 1 (AI Workforce Engine), milestone M0 plus the scheduling/EVV core.** The backend
-runs, is migrated, and is tested end to end. There is no web or mobile client yet.
+**Phase 1 (AI Workforce Engine) — M0 through M4 complete on the backend, with a working
+agency admin web app.** The remaining Phase 1 gap is the caregiver mobile app, plus the
+compliance reviews that must happen before launch.
 
 See [`docs/BUILD_STATUS.md`](docs/BUILD_STATUS.md) for what is built, what is deliberately
 stubbed, and what has not been started — assessed against the milestone table in
@@ -23,6 +24,7 @@ stubbed, and what has not been started — assessed against the milestone table 
 
 ```
 docs/                    The 13-document product and architecture set (source of truth)
+apps/admin-web/          Agency admin web app (Next.js 15, React 19, TypeScript)
 services/api/            Modular-monolith backend (Python 3.11, FastAPI, PostgreSQL)
   careos/
     api/                 HTTP layer — routers, schemas, dependencies
@@ -55,7 +57,10 @@ make install
 make bootstrap-db     # creates the database and the careos_app / careos_auth roles
 make migrate
 make seed
-make dev              # http://localhost:8000/docs
+make dev              # API at http://localhost:8000/docs
+
+# Admin web app (needs the API running)
+cd apps/admin-web && npm install && npm run dev   # http://localhost:3000
 ```
 
 ```bash
@@ -63,6 +68,22 @@ make check            # everything CI runs: lint, types, tests
 make test-isolation   # just the multi-tenant isolation suite
 make help             # all targets
 ```
+
+## Admin web app
+
+Next.js App Router, server-rendered. Three deliberate choices:
+
+- **The access token never reaches the browser.** It lives in an httpOnly cookie and every
+  API call runs server-side. This app renders PHI, so an XSS able to read a token would be a
+  reportable breach rather than a bug.
+- **Every AI suggestion shows its reasoning inline**, per `docs/09_UX_Design_and_User_Flows.md`
+  principle 4 — there is no bare score anywhere in the UI.
+- **Design tokens before screens**, per that document's Section 5, so the caregiver mobile app
+  and family portal can adopt the same scale rather than diverging.
+
+Screens: dashboard, scheduling board with gap queue and ranked suggestions (Flow A, the
+highest-frequency flow), recruiting funnel and applicant pipeline, credentialing renewal
+queue, and compliance review standing.
 
 ## Architecture at a glance
 

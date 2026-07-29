@@ -214,3 +214,23 @@ jobs:
             echo "::error::Possible committed credential. Move it to the secrets manager."
             exit 1
           fi
+
+  web:
+    name: Admin web app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/admin-web/package-lock.json
+      - name: Install
+        working-directory: apps/admin-web
+        run: npm ci
+      - name: Type check
+        working-directory: apps/admin-web
+        run: npm run typecheck
+      - name: Build
+        working-directory: apps/admin-web
+        run: npm run build

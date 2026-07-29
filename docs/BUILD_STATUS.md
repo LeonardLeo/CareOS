@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-29
-**Assessed by:** build increment 3 (routing adapter, compliance review log)
+**Assessed by:** build increment 4 (agency admin web app)
 
 ---
 
@@ -21,9 +21,9 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 193 passing against a real PostgreSQL instance |
+| Tests | 194 passing against a real PostgreSQL instance; admin web app type-checks and builds |
 | Lint / types | `ruff` and `mypy` clean |
-| Clients | **None.** No web admin app, no caregiver mobile app |
+| Clients | **Admin web app built and working.** No caregiver mobile app |
 | Compliance review | **Not performed** |
 
 The stack choice between TypeScript/NestJS and Python/FastAPI was left open by
@@ -117,6 +117,14 @@ Credential CRUD plus an expiration dashboard bucketed at 7/30/60 days. Already-e
 credentials are surfaced rather than filtered out: they are the most urgent case, since the
 caregiver is unassignable right now.
 
+### Agency admin web app
+Next.js App Router, server-rendered, with the design-token pass `09_UX...` Section 5 asks for
+done before any screen. The access token is held in an httpOnly cookie and never reaches page
+JavaScript, because this surface renders PHI. Screens: dashboard, scheduling board with gap
+queue and ranked suggestions (Flow A), recruiting funnel and applicant pipeline, credentialing
+renewal queue, compliance review standing. Verified end to end against a live API — assigning
+a caregiver through the UI moves the visit out of the gap queue.
+
 ### Compliance operations
 `06_Compliance_and_Regulatory_Requirements.md` Section 9 sets a review cadence, and
 `12_Engineering_Handoff_Guide.md` Section 5 requires outcomes and dates recorded durably.
@@ -146,9 +154,9 @@ These are honest placeholders, not oversights:
 
 ## Not started
 
-- **Caregiver mobile app** and **agency admin web app** — no client exists. This is the
-  largest remaining gap in Phase 1, and the caregiver app is called out in
-  `09_UX_Design_and_User_Flows.md` as the highest-stakes surface in the product.
+- **Caregiver mobile app** — the largest remaining Phase 1 gap, and
+  `09_UX_Design_and_User_Flows.md` calls it the highest-stakes surface in the product.
+  Offline clock-in cannot be validated without it.
 - **Hosted-LLM inference** — ranking is a deterministic weighted scorer behind a `Scorer`
   protocol. `03_Technical_Architecture.md` Section 5 makes that the intended first step and
   warns against over-building; an LLM implementation slots in behind the same interface and
@@ -179,11 +187,10 @@ These are honest placeholders, not oversights:
 
 ## Suggested next steps
 
-1. **Agency admin web app**, starting with the scheduling board, the gap queue, and the
-   compliance-exception queue. The backend for all three exists; the exception queue is the
-   scheduler's default view per `09_UX...` principle 3.
-2. **Caregiver mobile app** with a genuine offline store, since clock-in is the highest-stakes
-   surface and cannot be validated without a real client.
+1. **Caregiver mobile app** with a genuine offline store, since clock-in is the
+   highest-stakes surface and cannot be validated without a real client.
+2. **Extend the admin app**: client and care-plan management, user administration, and the
+   compliance-exception queue as a first-class screen rather than dashboard tiles.
 3. **First real EVV integration** for one state, end to end through that vendor's sandbox.
    This is the assumption most likely to be wrong, and the cheapest time to find out is now.
 4. **Engage compliance counsel**, and run the bias audit on real outcomes before the ranking

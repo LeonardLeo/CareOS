@@ -563,3 +563,36 @@ async def test_registry_resolves_the_configured_adapter(
     async with tenant_session(tenant_a.agency_id) as session:
         adapter = await resolve_for_state(session, "ny")  # case-insensitive
     assert adapter.adapter_key == "loopback"
+
+
+async def test_unconfigured_service_code_is_a_clear_error_not_a_500(
+    tenant_a: TenantFixture, reference_data: None
+) -> None:
+    """An unknown service code is a correctable configuration problem, not a crash.
+
+    `scheduled_visit` has a composite foreign key into `payer_service_code_ref`, so without
+    an explicit check this surfaced as a database integrity error and a 500. Codes vary by
+    state and waiver program (`06_Compliance...` Section 4), so an agency operating in a new
+    state will hit this — and needs to be told what to fix.
+    """
+    from careos.core.errors import ValidationError
+
+    _client_id, plan_id = await make_client_with_plan(tenant_a, service_code="NOT_A_REAL_CODE")
+    async with tenant_session(tenant_a.agency_id) as session:
+        plan = await session.get(CarePlan, plan_id)
+        with pytest.raises(ValidationError) as exc:
+            await scheduling.generate_visits(
+                session,
+                principal=tenant_a.principal(),
+                care_plan=plan,
+                window=scheduling.GenerationWindow(
+                    start=datetime.now(UTC).date(),
+                    end=(datetime.now(UTC) + timedelta(days=7)).date(),
+                ),
+                duration_minutes=60,
+            )
+
+    assert exc.value.code == "VALIDATION_ERROR"
+    assert "NOT_A_REAL_CODE" in str(exc.value)
+    assert exc.value.details["state"] == "NY"
+    assert "payer_service_code_ref" in exc.value.details["remediation"]

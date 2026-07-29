@@ -17,13 +17,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from careos.core.audit import AuditAction, record_audit
-from careos.core.errors import ComplianceGateError, ConflictError, NotFoundError
+from careos.core.errors import (
+    ComplianceGateError,
+    ConflictError,
+    NotFoundError,
+    ValidationError,
+)
 from careos.core.security import Principal
 from careos.integrations.evv import registry
 from careos.integrations.evv.base import EVVPayload, TransmissionOutcome
 from careos.modules.compliance_rules import engine as rules_engine
 from careos.modules.compliance_rules.engine import Finding, Severity
 from careos.modules.credentialing.models import Caregiver, Credential, ExclusionCheckStatus
+from careos.modules.reference.models import PayerServiceCodeRef
 from careos.modules.scheduling.models import (
     CaptureMethod,
     CarePlan,
@@ -182,6 +188,36 @@ async def generate_visits(
     client = await session.get(Client, care_plan.client_id)
     if client is None:
         raise NotFoundError("Care plan references a client that does not exist")
+
+    # Validate the service-code triple before inserting. `scheduled_visit` has a composite
+    # foreign key into `payer_service_code_ref`, so an unconfigured code would otherwise
+    # surface as a database integrity error and a 500 — when it is really a correctable
+    # configuration problem the scheduler should be told about plainly.
+    if care_plan.default_service_type_code is not None:
+        known_code = (
+            await session.execute(
+                select(PayerServiceCodeRef.code).where(
+                    PayerServiceCodeRef.code == care_plan.default_service_type_code,
+                    PayerServiceCodeRef.state_code == client.service_state,
+                    PayerServiceCodeRef.payer_type == client.primary_payer_type,
+                )
+            )
+        ).scalar_one_or_none()
+        if known_code is None:
+            raise ValidationError(
+                f"Service code {care_plan.default_service_type_code!r} is not configured for "
+                f"{client.primary_payer_type} in {client.service_state}",
+                details={
+                    "service_type_code": care_plan.default_service_type_code,
+                    "state": client.service_state,
+                    "payer_type": client.primary_payer_type,
+                    "remediation": (
+                        "Add the code to payer_service_code_ref for this state and payer "
+                        "type. Codes and rates vary by state and waiver program "
+                        "(06_Compliance_and_Regulatory_Requirements.md Section 4)."
+                    ),
+                },
+            )
 
     occurrences = _materialize_occurrences(
         care_plan.visit_frequency_rule, window, care_plan.effective_start
