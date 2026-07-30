@@ -377,21 +377,64 @@ These are honest placeholders, not oversights:
 | EVV abuse detection | **Detection only.** Section 9 asks for heuristics in place of throttling on clock-in/out; volume per caregiver is counted and logged above a ceiling no human reaches, but it is not surfaced in the exception queue, and device fingerprinting and geo-velocity are not built — the app does not yet send a device identity |
 | Offboarding | **Built and tested.** Terminating a caregiver revokes their login in the same transaction, and an owner can end any user's sessions from the Users screen with an audited reason. Account *disablement* (as distinct from ending sessions) is still not exposed |
 
+## Known defects
+
+### Responses are sent before their transaction commits
+
+**This is the most serious thing in this file.** Found by chasing an intermittent CI failure in
+the caregiver-app job, not by review.
+
+`db_session` is a FastAPI dependency with `yield`, wrapping `tenant_session`, whose
+`session.begin()` block issues the `COMMIT` when it exits. FastAPI runs a `yield` dependency's
+exit code **after the response has gone out on the wire**. So every write endpoint in this API
+answers the client before its own transaction has committed.
+
+Reproduced over a real socket against uvicorn, with a middleware in the stack to match the real
+app: the client receives `200` in 3 ms and an immediate follow-up read cannot see the write; the
+commit lands 300 ms later.
+
+Two consequences, in increasing order of seriousness:
+
+1. **Read-after-write is not guaranteed.** A client that creates a resource and immediately uses
+   its id can get a 404. This is what the e2e seed hits: `POST /caregivers` returns 201 and the
+   very next call 404s on that id. The seed already carried a defensive check with a comment
+   guessing at "missing or merely invisible to the reading transaction" — it was the latter.
+2. **A failed commit cannot be reported to the client.** The response is already sent, so there
+   is no status code left to change. Reproduced: with the commit forced to raise, the client
+   receives `200 {"status": "clocked_in", "evv_record": "created"}` while the server logs the
+   rollback. A caregiver is told their clock-in was recorded when it was not — the same class of
+   bug as the 409-handling one fixed in the outbox, in the opposite and more dangerous
+   direction, and precisely what EVV exists to prevent.
+
+The fix is to move the unit of work in front of the response rather than behind it: have the
+request middleware — which already owns authentication, rate limiting, and revocation, and which
+completes before the response is returned — open the session, put it on `request.state`, and
+commit there, leaving `db_session` to hand out what the middleware created. That touches core
+session plumbing and every test that assumes the current lifecycle, so it wants its own
+increment rather than being folded into an unrelated one.
+
+Until then the window is small (a commit on a healthy local database) and the intermittent CI
+failure is the visible symptom. It is not a reason to treat this as cosmetic: the second
+consequence is a silent data-loss report on the one endpoint that must never lie.
+
 ## Suggested next steps
 
-1. **Run the caregiver app on real devices.** It is verified in Chromium at a phone viewport
+1. **Commit before responding** — the defect above. It outranks everything else here, because a
+   caregiver being told a clock-in succeeded when it was rolled back is the failure this product
+   is built to make impossible.
+2. **Run the caregiver app on real devices.** It is verified in Chromium at a phone viewport
    against a real API, which is a much stronger position than unexecuted code but is not the
    same as iOS Safari, a real GPS chip, and a genuinely bad connection. Decide native
    packaging at the same time, since iOS push and background sync depend on it.
-2. **Observability.** There is now a component whose failure is invisible from the outside: a
+3. **Observability.** There is now a component whose failure is invisible from the outside: a
    degraded rate limiter still answers every request, just with the wrong ceiling. It logs, but
    nothing collects the logs, and the same is true of the EVV anomaly counter and the bias
    audit. Structured logging exists; metrics, traces, and somewhere to send them do not.
-3. **First real EVV integration** for one state, end to end through that vendor's sandbox.
+4. **First real EVV integration** for one state, end to end through that vendor's sandbox.
    This is the assumption most likely to be wrong, and the cheapest time to find out is now.
-4. **Engage compliance counsel**, and run the bias audit on real outcomes before the ranking
+5. **Engage compliance counsel**, and run the bias audit on real outcomes before the ranking
    model influences actual hiring. The tooling exists; the audit does not.
-5. **Register a real routing provider.** The `RoutingAdapter` interface and registry
+6. **Register a real routing provider.** The `RoutingAdapter` interface and registry
    exist; only the haversine approximation is implemented. This is now a one-class change.
-6. **Job-board and background-check integrations**, behind the adapter interfaces
+7. **Job-board and background-check integrations**, behind the adapter interfaces
    `07_Integration_Specifications.md` Section 1 requires.
