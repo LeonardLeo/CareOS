@@ -217,6 +217,13 @@ async def _apply_rate_limit(
     if tier is Tier.exempt and resolved is not None and "clock-" in resolved[0]:
         # Exempt from throttling, per Section 9 — but the same section asks for abuse detection
         # in its place, so the volume is still counted and logged. This never refuses.
+        #
+        # It does put a Redis round trip on the clock-in path, which is telemetry blocking the
+        # one endpoint that must never be delayed unnecessarily. Accepted rather than made
+        # fire-and-forget: the call is bounded by a 250 ms socket timeout, the breaker stops a
+        # dead Redis from costing even that more than once, and it is one hop among several
+        # database round trips the handler makes anyway. Revisit if it ever shows up in the
+        # clock-in latency rather than on the strength of the argument.
         await limiter.note_evv_volume(
             agency_id=str(agency_id) if agency_id else None,
             caregiver_id=(
