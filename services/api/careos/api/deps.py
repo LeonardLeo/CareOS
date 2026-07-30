@@ -16,11 +16,16 @@ from careos.modules.agency.models import AppUser
 
 
 async def authenticate(request: Request) -> Principal | None:
-    """Resolve the bearer token, if present, and stash the Principal on the request.
+    """Verify the bearer token, if present, and stash the Principal on the request.
 
     Returns None rather than raising for unauthenticated requests: whether authentication
     is *required* is the route's declaration to make (`requires()` versus `public()`), not
     this function's.
+
+    Signature verification only — deliberately no database access. The revocation check is
+    `enforce_session_revocation`, called separately so that rate limiting can run in between:
+    an unauthenticated flood should be refused by the limiter before it costs a query per
+    request, which is exactly what an attacker would aim for otherwise.
     """
     header = request.headers.get("Authorization")
     if not header:
@@ -30,12 +35,11 @@ async def authenticate(request: Request) -> Principal | None:
         raise AuthenticationError("Authorization header must be a Bearer token")
 
     principal = decode_token(token, expected_type="access")
-    await _assert_session_not_revoked(principal)
     request.state.principal = principal
     return principal
 
 
-async def _assert_session_not_revoked(principal: Principal) -> None:
+async def enforce_session_revocation(principal: Principal) -> None:
     """Refuse a token issued before the user's sessions were revoked.
 
     This is the server half of the remote-wipe requirement in
@@ -96,4 +100,10 @@ async def current_principal(request: Request) -> Principal:
     return get_principal(request)
 
 
-__all__ = ["Depends", "authenticate", "current_principal", "db_session"]
+__all__ = [
+    "Depends",
+    "authenticate",
+    "current_principal",
+    "db_session",
+    "enforce_session_revocation",
+]

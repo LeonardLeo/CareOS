@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HttpOutboxTransport } from "./api";
-import { Outbox, type OutboxAction, type QueueRequest, backoffFor, isEscalated } from "./outbox";
+import { Outbox, type OutboxAction, type QueueRequest, delayBefore, isEscalated } from "./outbox";
 import { readToken } from "./session";
 import { IndexedDbOutboxStorage } from "./storage";
 
@@ -111,8 +111,10 @@ export function useSync(onAccepted?: () => void): SyncApi {
   // Backstop retry, paced by the most-attempted item so a long outage backs off instead of
   // retrying every 20 seconds for an hour.
   useEffect(() => {
-    const worstAttempts = pending.reduce((max, a) => Math.max(max, a.attempts), 0);
-    const delay = pending.length === 0 ? POLL_INTERVAL_MS : Math.max(POLL_INTERVAL_MS, backoffFor(worstAttempts));
+    // Paced by the longest wait any queued action is owed, so a server that asked for a
+    // specific delay gets it and a long outage backs off instead of retrying every 20 seconds.
+    const owed = pending.reduce((max, action) => Math.max(max, delayBefore(action)), 0);
+    const delay = pending.length === 0 ? POLL_INTERVAL_MS : Math.max(POLL_INTERVAL_MS, owed);
     const timer = window.setTimeout(() => void flushNow(), delay);
     return () => window.clearTimeout(timer);
   }, [pending, flushNow]);

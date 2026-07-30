@@ -18,11 +18,19 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
-from careos.api.deps import authenticate
+from careos.api.deps import authenticate, enforce_session_revocation
 from careos.api.v1 import agencies, auth, caregivers, clients, recruiting, visits
 from careos.config import get_settings
 from careos.core.context import request_id_var, source_ip_var
-from careos.core.errors import CareOSError, ValidationError
+from careos.core.errors import CareOSError, RateLimitExceededError, ValidationError
+from careos.core.ratelimit import (
+    Decision,
+    Tier,
+    assert_rate_limit_paths_exist,
+    get_rate_limiter,
+    resolve_route_path,
+    tier_for,
+)
 from careos.core.rbac import assert_all_routes_declare_access, public
 from careos.db.models import assert_every_table_is_classified
 from careos.db.session import dispose_engines
@@ -34,10 +42,11 @@ API_PREFIX = "/v1"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Both checks are startup gates rather than tests, so a misconfigured build fails to
-    # boot instead of serving traffic with a hole in it.
+    # These are startup gates rather than tests, so a misconfigured build fails to boot
+    # instead of serving traffic with a hole in it.
     assert_every_table_is_classified()
     assert_all_routes_declare_access(app)
+    assert_rate_limit_paths_exist(app)
     logger.info("careos.startup", environment=get_settings().environment)
     yield
     await dispose_engines()
@@ -76,29 +85,60 @@ def create_app() -> FastAPI:
     async def request_context(
         request: Request, call_next: Callable[[Request], Awaitable[JSONResponse]]
     ):
-        """Establish request context and resolve the caller before routing.
+        """Establish request context, resolve the caller, and apply rate limits.
 
         Authentication runs here rather than as a per-route dependency so that
         `request.state.principal` is available to the session dependency, which needs the
         tenant to scope the transaction before any handler code runs.
+
+        The order inside is load-bearing:
+
+        1. **Verify the token** — signature only, no database access.
+        2. **Rate limit** — using the agency from that token where there is one.
+        3. **Check session revocation** — which costs a query, and so must sit behind the
+           limiter rather than in front of it. Reversed, an unauthenticated flood would buy a
+           database round trip per request, and the limiter would be protecting nothing.
         """
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
         request_id_token = request_id_var.set(request_id)
-        source_ip_token = source_ip_var.set(
-            request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-            or (request.client.host if request.client else None)
+        source_ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or (
+            request.client.host if request.client else None
         )
+        source_ip_token = source_ip_var.set(source_ip)
         try:
             try:
-                await authenticate(request)
+                principal = await authenticate(request)
+                decision = await _apply_rate_limit(request, principal, source_ip)
+                if principal is not None:
+                    await enforce_session_revocation(principal)
+            except RateLimitExceededError as exc:
+                response = JSONResponse(status_code=429, content=exc.to_envelope())
+                response.headers["Retry-After"] = str(exc.retry_after)
+                response.headers["X-Request-ID"] = request_id
+                return response
             except CareOSError as exc:
                 return JSONResponse(status_code=exc.status_code, content=exc.to_envelope())
+
             response = await call_next(request)
             response.headers["X-Request-ID"] = request_id
+            if decision is not None:
+                # Advertised on every answered request, not only on refusals, so a client can
+                # slow down before it is turned away rather than after.
+                response.headers["RateLimit-Limit"] = str(decision.limit)
+                response.headers["RateLimit-Remaining"] = str(decision.remaining)
+                response.headers["RateLimit-Reset"] = str(decision.reset_after)
             return response
         finally:
             request_id_var.reset(request_id_token)
             source_ip_var.reset(source_ip_token)
+
+    # Registered before the general CareOSError handler because a 429 also needs Retry-After,
+    # and the login endpoint raises one from inside a handler rather than from middleware.
+    @app.exception_handler(RateLimitExceededError)
+    async def rate_limit_handler(_request: Request, exc: RateLimitExceededError) -> JSONResponse:
+        response = JSONResponse(status_code=exc.status_code, content=exc.to_envelope())
+        response.headers["Retry-After"] = str(exc.retry_after)
+        return response
 
     @app.exception_handler(CareOSError)
     async def careos_error_handler(_request: Request, exc: CareOSError) -> JSONResponse:
@@ -135,6 +175,52 @@ def create_app() -> FastAPI:
         return {"status": "ok", "service": "careos-api"}
 
     return app
+
+
+async def _apply_rate_limit(
+    request: Request, principal: object | None, source_ip: str | None
+) -> Decision | None:
+    """Apply the tier's limit and raise 429 if it is spent. Returns the decision when allowed.
+
+    The tier comes from the matched route *template*, so `/v1/visits/{visit_id}/clock-in` is
+    exempt for every visit id rather than for a literal path nobody requests.
+    """
+    resolved = resolve_route_path(request.app, request.url.path, request.method)
+    if resolved is None:
+        # Nothing matched, so this is a 404 in the making — a scanner's traffic. Limit it as
+        # standard rather than letting unmatched paths through unlimited.
+        tier = Tier.standard
+    else:
+        path, method = resolved
+        tier = tier_for(path, method)
+
+    limiter = get_rate_limiter()
+    agency_id = getattr(principal, "agency_id", None)
+
+    if tier is Tier.exempt and resolved is not None and "clock-" in resolved[0]:
+        # Exempt from throttling, per Section 9 — but the same section asks for abuse detection
+        # in its place, so the volume is still counted and logged. This never refuses.
+        limiter.note_evv_volume(
+            agency_id=str(agency_id) if agency_id else None,
+            caregiver_id=(
+                str(getattr(principal, "caregiver_id", None))
+                if getattr(principal, "caregiver_id", None)
+                else None
+            ),
+        )
+
+    decision = limiter.check(
+        tier=tier,
+        agency_id=str(agency_id) if agency_id else None,
+        source_ip=source_ip,
+    )
+    if decision is not None and not decision.allowed:
+        raise RateLimitExceededError(
+            "Too many requests. Please retry shortly.",
+            retry_after=decision.retry_after,
+            details={"limit_per_minute": decision.limit, "tier": tier.value},
+        )
+    return decision
 
 
 app = create_app()

@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-29
-**Assessed by:** build increment 8 (offboarding, session revocation, user administration)
+**Assessed by:** build increment 9 (rate limiting)
 
 ---
 
@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 226 API tests against a real PostgreSQL instance, 16 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
+| Tests | 254 API tests against a real PostgreSQL instance, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **Admin web app and caregiver app both built and working.** Caregiver app is an installable PWA, not React Native — see below |
 | Compliance review | **Not performed** |
@@ -80,6 +80,43 @@ ranking, ambient extraction, and claim scrubbing are all core to the roadmap.
   - A reason is required and audited. "We removed their access when they left" is a claim, and
     a reason attached to a timestamp and an actor is what evidences it.
 - **Error envelope.** Single shape for every failure, including FastAPI validation errors.
+- **Rate limiting** (`05_API_Specification.md` Section 9). Token buckets, three tiers, and the
+  exemption is the point of the design rather than a footnote:
+  - **Clock-in and clock-out are never throttled**, as Section 9 requires. An EVV record that
+    could not be created because someone else filled the agency's budget becomes this
+    caregiver's unpaid visit. Verified by a test that exhausts the standard budget and asserts
+    a clock-in still gets a non-429 answer.
+  - **Standard: 100/minute per agency**, the documented figure, keyed by agency so two agencies
+    behind one address do not consume each other's allowance — and falling back to the address
+    when there is no token, or an unauthenticated flood would have no key and therefore no
+    limit.
+  - **Auth endpoints get their own tier**, which the spec does not describe. Keyed by agency,
+    login cannot be limited at all, so the password form was the one endpoint with no ceiling —
+    and session revocation had just given an attacker a reason to hammer it. 10/minute per
+    account and address (applied inside the login handler, because the email is in the body and
+    reading a body in middleware consumes the stream the handler needs) plus 30/minute per
+    address, so credential spraying across many accounts is caught by the second counter even
+    though each account stays under the first.
+  - **Buckets, not fixed windows.** A fixed window permits the whole allowance at the end of
+    one window and again at the start of the next, and that 2x burst arrives exactly when
+    retrying clients have synchronized to the boundary.
+  - `Retry-After` on refusals and `RateLimit-*` on every answered request, so a client can slow
+    down before it is turned away. The caregiver app's outbox honours the header rather than
+    its own backoff — retrying sooner than instructed is how a client turns a rate limit into
+    the load that caused it.
+  - Two bugs found while building it, both by tests rather than review. The first version
+    resolved route templates with Starlette's `route.matches()`, which silently matched nothing
+    because FastAPI wraps included routers — so every request fell to the standard tier and
+    **clock-in was being throttled**, the one outcome Section 9 forbids. The startup path check
+    did not catch it, because that check reads a different traversal which already worked. The
+    second: templates were ordered by length, so `/v1/visits/{visit_id}` beat the literal
+    `/v1/visits/gaps`; specificity is wildcard count, not string length.
+  - **Limits are per instance, not per cluster.** The in-memory store means N application
+    instances enforce N x the documented figure. Redis is in the compose stack and unused; the
+    store is an interface so that swap is a constructor argument. Shipping the single-instance
+    version first is deliberate — it is correct in development and test and strictly better
+    than nothing — but the deployed figure is not the configured one until a shared store
+    exists.
 - **CI.** Seven required jobs (`.github/workflows/ci.yml`). Three of them were failing on the
   first pull request for reasons worth recording, because each was invisible locally:
   - The repository's Python `.gitignore` carried an unanchored `lib/`, which matches a
@@ -295,7 +332,6 @@ These are honest placeholders, not oversights:
 - **All third-party integrations** — background check, job boards, STT, clearinghouse,
   payroll, legacy EHR import.
 - **Phase 2 and Phase 3 behaviour** — tables only, by design.
-- **Rate limiting**, with the clock-in/out exemption in `05_API_Specification.md` Section 9.
 - **Outbound webhooks** (`05_API_Specification.md` Section 7).
 - **Data export tooling** — required by the PRD's portability NFR and by
   `06_Compliance...` Section 8, and explicitly meant to be first-class rather than an
@@ -315,6 +351,8 @@ These are honest placeholders, not oversights:
 | Incident-response plan | **Not written.** Required before Phase 1 launch |
 | SOC 2 | **Not started.** Several underlying controls exist (access management, audit logging, encryption); no evidence collection |
 | Penetration test | **Not performed** |
+| Brute-force protection | **Built and tested.** 10 login attempts per minute per account and address, 30 per address across accounts, counted before the password is checked. Account lockout after repeated failures is *not* implemented — the limiter slows an attacker rather than stopping them, and a lockout policy needs a decision about the denial-of-service it enables |
+| EVV abuse detection | **Detection only.** Section 9 asks for heuristics in place of throttling on clock-in/out; volume per caregiver is counted and logged above a ceiling no human reaches, but it is not surfaced in the exception queue, and device fingerprinting and geo-velocity are not built — the app does not yet send a device identity |
 | Offboarding | **Built and tested.** Terminating a caregiver revokes their login in the same transaction, and an owner can end any user's sessions from the Users screen with an audited reason. Account *disablement* (as distinct from ending sessions) is still not exposed |
 
 ## Suggested next steps
@@ -323,10 +361,9 @@ These are honest placeholders, not oversights:
    against a real API, which is a much stronger position than unexecuted code but is not the
    same as iOS Safari, a real GPS chip, and a genuinely bad connection. Decide native
    packaging at the same time, since iOS push and background sync depend on it.
-2. **Rate limiting**, with the clock-in/out exemption in `05_API_Specification.md` Section 9.
-   Now the most conspicuous missing control: the login endpoint accepts unlimited attempts,
-   which matters more than it did before session revocation gave an attacker a reason to
-   hammer it.
+2. **A shared rate-limit store.** The limiter works and is tested, but its buckets live in
+   process memory, so the enforced ceiling is multiplied by the instance count. Redis is
+   already in the compose stack; the `RateLimitStore` interface exists for exactly this.
 3. **First real EVV integration** for one state, end to end through that vendor's sandbox.
    This is the assumption most likely to be wrong, and the cheapest time to find out is now.
 4. **Engage compliance counsel**, and run the bias audit on real outcomes before the ranking

@@ -202,6 +202,35 @@ client's home must always be able to record that they are there; problems surfac
 compliance exceptions afterwards. Transmission happens in a background worker with
 exponential backoff, escalating to a human after repeated failure.
 
+## Rate limits
+
+`05_API_Specification.md` Section 9 gives two rules. Both are enforced, and the second one is
+the interesting half.
+
+| Tier | Limit | Keyed by |
+|---|---|---|
+| Standard | 100/minute | Agency, falling back to source address when unauthenticated |
+| Auth (`/auth/login`, `/auth/refresh`, `POST /agencies`) | 10/minute per account, 30/minute per address | Address, and address + email |
+| Exempt (`clock-in`, `clock-out`, `/health`) | none | — |
+
+**Clock-in and clock-out are never throttled.** A caregiver whose EVV record could not be
+created because someone else's traffic filled the agency's budget has an unpaid visit and the
+agency has a compliance exception, so throttling is not an available answer. Section 9 asks for
+abuse detection in its place: volume per caregiver is counted and logged above a ceiling no human
+reaches, and it never refuses a request. That is a shallow version of what the section describes —
+device fingerprinting and geo-velocity need a device identity the app does not send yet.
+
+The auth tier is not in the spec. Everything there is keyed by agency, and login happens before
+an agency is known, which left the password form as the only endpoint with no ceiling at all.
+
+Refusals carry `Retry-After`; answered requests carry `RateLimit-Limit`, `RateLimit-Remaining`,
+and `RateLimit-Reset`, so a client can slow down before it is turned away. The caregiver app's
+outbox honours the header in preference to its own backoff.
+
+Limits are configurable (`CAREOS_RATE_LIMIT_*`) and **per instance**: the buckets live in process
+memory, so N instances enforce N x the figure above. `RateLimitStore` is an interface and Redis is
+already in the compose stack — see BUILD_STATUS.
+
 ## Non-negotiable constraints
 
 From `docs/01_Product_Vision_and_Executive_Summary.md` Section 7 and

@@ -31,6 +31,16 @@ PG_PORT = os.environ.get("PGPORT", "5432")
 SUPERUSER = os.environ.get("PGSUPERUSER", "postgres")
 SUPERPASS = os.environ.get("PGPASSWORD", "postgres")
 
+# Rate limits are raised far out of the way for the suite as a whole. The middleware still runs
+# on every request — that path should be exercised, not bypassed — but hundreds of tests sharing
+# one loopback address would otherwise exhaust a realistic per-address budget and fail for
+# reasons unrelated to what they assert. `tests/test_rate_limits.py` tightens the policy on the
+# live limiter to prove the limits themselves.
+os.environ.setdefault("CAREOS_RATE_LIMIT_STANDARD_PER_MINUTE", "1000000")
+os.environ.setdefault("CAREOS_RATE_LIMIT_AUTH_PER_MINUTE", "1000000")
+os.environ.setdefault("CAREOS_RATE_LIMIT_AUTH_PER_IP_PER_MINUTE", "1000000")
+os.environ.setdefault("CAREOS_RATE_LIMIT_EVV_ANOMALY_PER_MINUTE", "1000000")
+
 os.environ["CAREOS_DATABASE_URL"] = (
     f"postgresql+asyncpg://careos_app:careos_app@{PG_HOST}:{PG_PORT}/{TEST_DB}"
 )
@@ -148,6 +158,22 @@ def database() -> None:
         cwd=API_ROOT,
         env=dict(os.environ),
     )
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits() -> None:
+    """Empty the token buckets before each test.
+
+    Without this, traffic from one test counts against the next — the buckets are process-wide
+    by design — and a test that tightens the policy would leave every later test starting from
+    a partly-spent allowance.
+    """
+    from careos.core.ratelimit import get_rate_limiter
+
+    store = get_rate_limiter().store
+    reset = getattr(store, "reset", None)
+    if callable(reset):
+        reset()
 
 
 @pytest.fixture(autouse=True)

@@ -327,6 +327,15 @@ jobs:
         working-directory: services/api
         env:
           CAREOS_ENVIRONMENT: local
+          # This job drives ~25 logins and signups from a single address in fifteen seconds,
+          # which sits just under the production auth ceiling of 30/minute — close enough that
+          # adding one test would start failing CI with a 429 that looks like a product bug.
+          # Raised deliberately here: the limiter has its own tests
+          # (`tests/test_rate_limits.py`), and this job's subject is the offline clock-in path.
+          # The clock-in endpoints are exempt either way, so the flow under test is unaffected.
+          CAREOS_RATE_LIMIT_AUTH_PER_IP_PER_MINUTE: "100000"
+          CAREOS_RATE_LIMIT_AUTH_PER_MINUTE: "100000"
+          CAREOS_RATE_LIMIT_STANDARD_PER_MINUTE: "100000"
         run: |
           nohup uvicorn careos.main:app --port 8000 > /tmp/api.log 2>&1 &
           for i in $(seq 1 30); do

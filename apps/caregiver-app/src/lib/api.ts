@@ -19,6 +19,8 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    /** Seconds the server asked us to wait, from `Retry-After`. Null when it did not say. */
+    readonly retryAfterSeconds: number | null = null,
   ) {
     super(message);
     this.name = "ApiError";
@@ -87,10 +89,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       payload && typeof payload === "object" && "error" in payload
         ? (payload as { error: { code: string; message: string } }).error
         : null;
+    // Retry-After is read from the header rather than the body. The body also carries the
+    // limit, but a client that has to parse JSON to learn when to come back tends not to.
+    const retryAfter = Number.parseInt(response.headers.get("Retry-After") ?? "", 10);
     throw new ApiError(
       response.status,
       envelope?.code ?? "UNKNOWN_ERROR",
       envelope?.message ?? `Request failed with status ${response.status}`,
+      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null,
     );
   }
   return payload as T;
@@ -155,7 +161,14 @@ export class HttpOutboxTransport implements OutboxTransport {
       if (error instanceof ApiError) {
         // 408/429 are the server asking us to come back, not refusing on the merits.
         if (error.status >= 500 || error.status === 408 || error.status === 429) {
-          return { status: "unreachable", message: error.message };
+          // Pass the server's own timing back so the queue waits as asked rather than using
+          // its own backoff. Retrying earlier than instructed is how a client turns a rate
+          // limit into the load that caused it.
+          return {
+            status: "unreachable",
+            message: error.message,
+            retryAfterSeconds: error.retryAfterSeconds ?? undefined,
+          };
         }
         if (error.status === 401) {
           return { status: "unreachable", message: "Session expired — sign in to sync" };

@@ -35,6 +35,19 @@ class Settings(BaseSettings):
     # --- Cache / queues -------------------------------------------------------
     redis_url: str = "redis://localhost:6379/0"
 
+    # --- Rate limits (`05_API_Specification.md` Section 9) --------------------
+    #: The documented default: 100 requests/minute per agency for standard endpoints.
+    rate_limit_standard_per_minute: int = 100
+    #: Login and refresh attempts per minute for one address/account pair. Tight on purpose:
+    #: nobody types their own password ten times a minute, and an attacker needs thousands.
+    rate_limit_auth_per_minute: int = 10
+    #: Auth attempts per minute from one address across all accounts, so credential spraying
+    #: across many emails is limited even though each account stays under its own ceiling.
+    rate_limit_auth_per_ip_per_minute: int = 30
+    #: Clock-ins/outs per minute from one caregiver above which the volume is logged as
+    #: anomalous. Never throttles — Section 9 forbids that — it only makes abuse visible.
+    rate_limit_evv_anomaly_per_minute: int = 30
+
     # --- Browser clients ------------------------------------------------------
     #: Origins allowed to call this API from a browser. The caregiver app needs this and the
     #: admin app does not: the admin app calls from its own server, while the caregiver PWA

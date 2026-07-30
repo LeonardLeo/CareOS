@@ -6,7 +6,9 @@ from fastapi import APIRouter, Depends, status
 
 from careos.api import schemas
 from careos.config import get_settings
-from careos.core.errors import AuthenticationError
+from careos.core.context import source_ip_var
+from careos.core.errors import AuthenticationError, RateLimitExceededError
+from careos.core.ratelimit import get_rate_limiter
 from careos.core.rbac import public
 from careos.core.security import create_token, decode_token
 from careos.db.session import privileged_session, tenant_session
@@ -24,7 +26,25 @@ async def login(payload: schemas.LoginRequest) -> schemas.TokenPair:
     tenant is what the email resolves to — so it runs on the narrow privileged pool. Once
     the tenant is known, everything else moves to an ordinary tenant-scoped session, keeping
     the privileged role's grants down to `agency`, `app_user`, and `audit_log`.
+
+    The per-account rate limit is applied here rather than in middleware because the email is
+    in the request body, and reading a body in middleware consumes the receive stream before
+    the handler can. The per-address limit still runs in front of this
+    (`05_API_Specification.md` Section 9 plus the reasoning in `careos.core.ratelimit`).
     """
+    # Counted before the password is checked, so a wrong guess costs allowance too. Charging
+    # only failures would let an attacker with one valid credential probe indefinitely, and
+    # charging only successes would not limit guessing at all.
+    attempt = get_rate_limiter().check_login_attempt(
+        source_ip=source_ip_var.get(), email=payload.email
+    )
+    if not attempt.allowed:
+        raise RateLimitExceededError(
+            "Too many sign-in attempts for this account. Please wait and try again.",
+            retry_after=attempt.retry_after,
+            details={"limit_per_minute": attempt.limit},
+        )
+
     try:
         async with privileged_session() as session:
             user = await agency_service.verify_credentials(

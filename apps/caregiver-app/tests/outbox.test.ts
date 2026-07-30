@@ -16,6 +16,7 @@ import {
   type OutboxTransport,
   type SendOutcome,
   backoffFor,
+  delayBefore,
   isEscalated,
 } from "../src/lib/outbox";
 
@@ -462,5 +463,70 @@ describe("concurrency", () => {
 
     await outbox.flush();
     expect(await outbox.pending()).toHaveLength(0);
+  });
+});
+
+describe("honouring the server's retry timing", () => {
+  it("waits as long as the server asked, overriding its own backoff", async () => {
+    // A 429 carries Retry-After, and the server knows when it will accept the request better
+    // than a client-side guess does. Retrying sooner than instructed turns a rate limit into
+    // more of the load that caused it.
+    const transport = new ScriptedTransport([
+      { status: "unreachable", message: "Too many requests", retryAfterSeconds: 45 },
+    ]);
+    const { outbox, storage } = makeOutbox(transport);
+
+    await outbox.queue({
+      kind: "clock_in",
+      visitId: "v1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+    await outbox.flush();
+
+    const stored = [...storage.rows.values()][0]!;
+    expect(stored.retryAfterSeconds).toBe(45);
+    // One attempt in, our own backoff would be seconds; the server said 45.
+    expect(delayBefore(stored)).toBe(45_000);
+    expect(delayBefore(stored)).toBeGreaterThan(backoffFor(stored.attempts));
+  });
+
+  it("falls back to its own backoff when the server said nothing", async () => {
+    const transport = new ScriptedTransport([{ status: "unreachable", message: "offline" }]);
+    const { outbox, storage } = makeOutbox(transport);
+
+    await outbox.queue({
+      kind: "clock_in",
+      visitId: "v1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+    await outbox.flush();
+
+    const stored = [...storage.rows.values()][0]!;
+    expect(stored.retryAfterSeconds).toBeNull();
+    expect(delayBefore(stored)).toBe(backoffFor(stored.attempts));
+  });
+
+  it("tolerates a row written before this field existed", async () => {
+    // The outbox lives in IndexedDB and survives app upgrades, so an action stored by an older
+    // build has no retryAfterSeconds at all — not null, absent.
+    const legacy: OutboxAction = {
+      clientLocalUuid: "old-1",
+      kind: "clock_in",
+      visitId: "v1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+      exceptionReason: null,
+      sequence: 1,
+      attempts: 2,
+      lastError: "offline",
+      syncedAt: null,
+      createdAt: "2026-07-29T09:00:00.000Z",
+    };
+    expect(delayBefore(legacy)).toBe(backoffFor(2));
   });
 });

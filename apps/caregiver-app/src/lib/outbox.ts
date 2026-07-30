@@ -50,6 +50,14 @@ export interface OutboxAction {
   lastError: string | null;
   /** Set once the server has accepted it. Retained briefly for the "synced" UI state. */
   syncedAt: string | null;
+  /**
+   * Seconds the server asked us to wait, when it said so (a rate limit's `Retry-After`).
+   *
+   * Optional rather than required because rows written by an earlier version of the app do not
+   * have it — this store survives upgrades, so every field added here has to tolerate its own
+   * absence.
+   */
+  retryAfterSeconds?: number | null;
   createdAt: string;
 }
 
@@ -66,7 +74,7 @@ export type SendOutcome =
   /** The server rejected it on its merits — retrying cannot help. */
   | { status: "rejected"; message: string }
   /** Could not reach the server, or the server failed transiently. Retry later. */
-  | { status: "unreachable"; message: string };
+  | { status: "unreachable"; message: string; retryAfterSeconds?: number };
 
 export interface OutboxTransport {
   send(action: OutboxAction): Promise<SendOutcome>;
@@ -81,6 +89,20 @@ export interface OutboxTransport {
  * drain a battery that the caregiver may need for the rest of a shift.
  */
 const BACKOFF_MS = [0, 2_000, 5_000, 15_000, 60_000, 300_000];
+
+/**
+ * How long to wait before the next attempt on this action.
+ *
+ * The server's instruction wins when there is one. Our own backoff is a guess about a network;
+ * a `Retry-After` is the server stating when it will accept the request, and retrying sooner
+ * only adds to the load that produced the limit.
+ */
+export function delayBefore(action: OutboxAction): number {
+  const asked = action.retryAfterSeconds;
+  if (typeof asked === "number" && asked > 0) return asked * 1000;
+  return backoffFor(action.attempts);
+}
+
 
 export function backoffFor(attempts: number): number {
   const clamped = Math.min(Math.max(attempts, 0), BACKOFF_MS.length - 1);
@@ -218,6 +240,7 @@ export class Outbox {
         ...action,
         attempts: action.attempts + 1,
         lastError: outcome.message,
+        retryAfterSeconds: outcome.retryAfterSeconds ?? null,
       });
       summary.deferred += queue.length - i;
       break;

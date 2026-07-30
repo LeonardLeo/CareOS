@@ -50,6 +50,22 @@ class NotFoundError(CareOSError):
     code = "NOT_FOUND"
 
 
+class RateLimitExceededError(CareOSError):
+    """Too many requests (`05_API_Specification.md` Section 9).
+
+    Carries `retry_after` separately from `details` because it also becomes a `Retry-After`
+    header — a client that has to parse the body to learn when to come back will mostly not
+    bother, and will retry immediately instead.
+    """
+
+    status_code = 429
+    code = "RATE_LIMIT_EXCEEDED"
+
+    def __init__(self, message: str, retry_after: int, details: dict[str, Any] | None = None):
+        super().__init__(message, details)
+        self.retry_after = retry_after
+
+
 class ConflictError(CareOSError):
     status_code = 409
     code = "CONFLICT"
