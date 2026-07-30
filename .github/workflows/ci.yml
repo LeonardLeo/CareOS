@@ -341,8 +341,16 @@ jobs:
           npm run build
           npx playwright install --with-deps chromium
           npx playwright test
+      # The API's own traceback is the only place a 500 from the seed explains itself, and
+      # without this the job reports "POST /v1/agencies -> 500" and nothing else.
+      - name: API log
+        if: always()
+        run: tail -200 /tmp/api.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: caregiver-app-screenshots
-          path: apps/caregiver-app/screenshots/
+          name: caregiver-app-diagnostics
+          path: |
+            apps/caregiver-app/screenshots/
+            apps/caregiver-app/test-results/
+            /tmp/api.log

@@ -81,6 +81,20 @@ export async function seedCaregiver(): Promise<SeededCaregiver> {
     token: ownerToken,
   });
 
+  // Confirm the invited user is readable before linking a caregiver to it. `POST /caregivers`
+  // fails with a bare foreign-key violation if it is not, which says nothing about whether the
+  // row is missing or merely invisible to the reading transaction — and those have completely
+  // different causes. Checking here splits them apart at the point of failure.
+  const users = await call<{ id: string }[]>(`/v1/agencies/${agency.id}/users`, {
+    token: ownerToken,
+  });
+  if (!users.some((u) => u.id === caregiverUser.id)) {
+    throw new Error(
+      `invited user ${caregiverUser.id} is not visible via GET /agencies/${agency.id}/users; ` +
+        `visible ids: ${users.map((u) => u.id).join(", ") || "(none)"}`,
+    );
+  }
+
   const caregiver = await call<{ id: string }>("/v1/caregivers", {
     method: "POST",
     body: {
