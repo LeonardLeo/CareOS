@@ -72,9 +72,8 @@ async def dispose_engines() -> None:
         _privileged_engine = None
 
 
-@asynccontextmanager
-async def tenant_session(agency_id: uuid.UUID | None) -> AsyncIterator[AsyncSession]:
-    """Open a transaction with the tenant GUC set for the life of that transaction.
+async def begin_tenant_session(agency_id: uuid.UUID | None) -> AsyncSession:
+    """Open a transaction with the tenant GUC set. **The caller owns commit and close.**
 
     `set_config(..., is_local => true)` scopes the setting to the transaction, so it is
     unset automatically on commit or rollback and cannot leak to the next request that
@@ -84,14 +83,55 @@ async def tenant_session(agency_id: uuid.UUID | None) -> AsyncIterator[AsyncSess
     `agency_id` against `nullif(current_setting(...), '')::uuid`, which is NULL in that
     case — and `agency_id = NULL` is never true. The failure mode is therefore "no rows",
     not "all rows".
+
+    Separate from `tenant_session` because the request path cannot use a context manager
+    here. A `with` block that commits on exit puts the commit in the dependency's teardown,
+    and FastAPI runs that *after* the response has gone to the client — which meant every
+    write was answered before it was durable, and a failed commit had no status code left
+    to be reported in. `careos.main` commits this in the middleware instead, while the
+    response can still change. Background jobs and tests have no such constraint and should
+    keep using `tenant_session`.
     """
     session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
-    async with session_factory() as session, session.begin():
+    session = session_factory()
+    await session.begin()
+    try:
         await session.execute(
             text("SELECT set_config(:guc, :value, true)"),
             {"guc": TENANT_GUC, "value": str(agency_id) if agency_id else ""},
         )
-        yield session
+    except BaseException:
+        # A session handed back without its tenant GUC set would read as an untenanted
+        # caller. RLS makes that "no rows" rather than "every row", but it must not happen
+        # silently either way.
+        await session.close()
+        raise
+    return session
+
+
+@asynccontextmanager
+async def tenant_session(agency_id: uuid.UUID | None) -> AsyncIterator[AsyncSession]:
+    """`begin_tenant_session` with commit-on-exit and rollback-on-error.
+
+    For background jobs, scripts, and tests. Request handlers get their session from
+    `careos.api.deps.db_session`, which leaves the commit to the middleware.
+    """
+    session = await begin_tenant_session(agency_id)
+    async with session:
+        try:
+            yield session
+        except BaseException:
+            await session.rollback()
+            raise
+        if session.is_active:
+            await session.commit()
+        else:
+            # A failed flush that the caller caught and carried on from leaves the transaction
+            # deactivated: it can only be rolled back, and committing it raises a
+            # PendingRollbackError that says nothing about the original error. The old
+            # `session.begin()` context did the same thing by returning early once SQLAlchemy
+            # had cleared the transaction; this states it rather than inheriting it.
+            await session.rollback()
 
 
 @asynccontextmanager

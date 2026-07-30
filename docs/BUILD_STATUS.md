@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-30
-**Assessed by:** build increment 10 (shared rate-limit store)
+**Assessed by:** build increment 11 (transaction boundary)
 
 ---
 
@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 272 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
+| Tests | 275 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **Admin web app and caregiver app both built and working.** Caregiver app is an installable PWA, not React Native — see below |
 | Compliance review | **Not performed** |
@@ -377,64 +377,75 @@ These are honest placeholders, not oversights:
 | EVV abuse detection | **Detection only.** Section 9 asks for heuristics in place of throttling on clock-in/out; volume per caregiver is counted and logged above a ceiling no human reaches, but it is not surfaced in the exception queue, and device fingerprinting and geo-velocity are not built — the app does not yet send a device identity |
 | Offboarding | **Built and tested.** Terminating a caregiver revokes their login in the same transaction, and an owner can end any user's sessions from the Users screen with an audited reason. Account *disablement* (as distinct from ending sessions) is still not exposed |
 
-## Known defects
+## Fixed: responses were sent before their transaction committed
 
-### Responses are sent before their transaction commits
+Found by chasing an intermittent CI failure in the caregiver-app job, not by review. Recorded
+in full because the mechanism is not obvious and the same shape can come back.
 
-**This is the most serious thing in this file.** Found by chasing an intermittent CI failure in
-the caregiver-app job, not by review.
-
-`db_session` is a FastAPI dependency with `yield`, wrapping `tenant_session`, whose
-`session.begin()` block issues the `COMMIT` when it exits. FastAPI runs a `yield` dependency's
-exit code **after the response has gone out on the wire**. So every write endpoint in this API
-answers the client before its own transaction has committed.
-
-Reproduced over a real socket against uvicorn, with a middleware in the stack to match the real
-app: the client receives `200` in 3 ms and an immediate follow-up read cannot see the write; the
-commit lands 300 ms later.
+**What was wrong.** `db_session` is a FastAPI dependency with `yield`, wrapping a
+`session.begin()` block that issued the `COMMIT` on exit. FastAPI runs a `yield` dependency's
+exit code *after the response has gone out on the wire*, so every write endpoint answered the
+client before its own transaction had committed. Reproduced over a real socket against uvicorn:
+the client received `200` in 3 ms and an immediate follow-up read could not see the write; the
+commit landed 300 ms later.
 
 Two consequences, in increasing order of seriousness:
 
-1. **Read-after-write is not guaranteed.** A client that creates a resource and immediately uses
-   its id can get a 404. This is what the e2e seed hits: `POST /caregivers` returns 201 and the
-   very next call 404s on that id. The seed already carried a defensive check with a comment
-   guessing at "missing or merely invisible to the reading transaction" — it was the latter.
-2. **A failed commit cannot be reported to the client.** The response is already sent, so there
-   is no status code left to change. Reproduced: with the commit forced to raise, the client
-   receives `200 {"status": "clocked_in", "evv_record": "created"}` while the server logs the
-   rollback. A caregiver is told their clock-in was recorded when it was not — the same class of
-   bug as the 409-handling one fixed in the outbox, in the opposite and more dangerous
-   direction, and precisely what EVV exists to prevent.
+1. **Read-after-write was not guaranteed.** A client that created a resource and immediately
+   used its id could get a 404. That is what the e2e seed kept hitting — `POST /caregivers`
+   returning 201 and the very next call 404ing on that id. The seed already carried a defensive
+   check whose comment guessed at "missing or merely invisible to the reading transaction"; it
+   was the latter.
+2. **A failed commit could not be reported.** The response was already sent, so no status code
+   was left to change. Reproduced: with the commit forced to raise, the client received
+   `200 {"status": "clocked_in", "evv_record": "created"}` while the server logged the
+   rollback. A caregiver told their clock-in was recorded when it was not — the same class of
+   bug as the 409 handling fixed in the outbox, in the opposite and more dangerous direction.
 
-The fix is to move the unit of work in front of the response rather than behind it: have the
-request middleware — which already owns authentication, rate limiting, and revocation, and which
-completes before the response is returned — open the session, put it on `request.state`, and
-commit there, leaving `db_session` to hand out what the middleware created. That touches core
-session plumbing and every test that assumes the current lifecycle, so it wants its own
-increment rather than being folded into an unrelated one.
+**The fix.** The unit of work moved in front of the response. `db_session` opens the session,
+publishes it on `request.state.unit_of_work`, and no longer commits; the request middleware —
+which already owns authentication, rate limiting, and revocation, and which still holds the
+response — commits after the handler and before answering. A commit that fails now replaces the
+response with a 500 `COMMIT_FAILED` whose message states that nothing was changed, which is
+true, so retrying is safe.
 
-Until then the window is small (a commit on a healthy local database) and the intermittent CI
-failure is the visible symptom. It is not a reason to treat this as cosmetic: the second
-consequence is a silent data-loss report on the one endpoint that must never lie.
+The rollback deliberately stayed in the dependency. An exception unwinds through the teardown
+before any response exists, so a handler that raises has its transaction discarded on the way
+past — which is what makes the middleware's "is this session still in a transaction?" test mean
+exactly "did this request succeed?". A transaction that a handler deactivated by swallowing a
+database error is also refused rather than quietly rolled back behind a success response.
+
+**How it is held.** `tests/test_transaction_boundary.py`, and the tests are the point:
+
+* The read-after-write test runs over a **real TCP socket**, because the in-process ASGI
+  transport the rest of the suite uses waits for the whole application coroutine — teardown
+  included — before returning the response, and so serializes away the exact race. A test on
+  that transport passed against the broken code.
+* It slows the commit and asserts *both* that the POST took at least that long and that the
+  immediate read succeeded. The timing assertion is what catches a regression that stops
+  routing through `AsyncSession.commit` — which the original `session.begin()` did, committing
+  through SQLAlchemy's synchronous `SessionTransaction` and slipping past the patch, leaving
+  the read to pass on luck. Both assertions fail against the pre-fix code; verified by
+  reverting it.
+
+`tenant_session` remains, with commit-on-exit, for background jobs, scripts, and tests, which
+have no response to race.
 
 ## Suggested next steps
 
-1. **Commit before responding** — the defect above. It outranks everything else here, because a
-   caregiver being told a clock-in succeeded when it was rolled back is the failure this product
-   is built to make impossible.
-2. **Run the caregiver app on real devices.** It is verified in Chromium at a phone viewport
+1. **Run the caregiver app on real devices.** It is verified in Chromium at a phone viewport
    against a real API, which is a much stronger position than unexecuted code but is not the
    same as iOS Safari, a real GPS chip, and a genuinely bad connection. Decide native
    packaging at the same time, since iOS push and background sync depend on it.
-3. **Observability.** There is now a component whose failure is invisible from the outside: a
+2. **Observability.** There is now a component whose failure is invisible from the outside: a
    degraded rate limiter still answers every request, just with the wrong ceiling. It logs, but
    nothing collects the logs, and the same is true of the EVV anomaly counter and the bias
    audit. Structured logging exists; metrics, traces, and somewhere to send them do not.
-4. **First real EVV integration** for one state, end to end through that vendor's sandbox.
+3. **First real EVV integration** for one state, end to end through that vendor's sandbox.
    This is the assumption most likely to be wrong, and the cheapest time to find out is now.
-5. **Engage compliance counsel**, and run the bias audit on real outcomes before the ranking
+4. **Engage compliance counsel**, and run the bias audit on real outcomes before the ranking
    model influences actual hiring. The tooling exists; the audit does not.
-6. **Register a real routing provider.** The `RoutingAdapter` interface and registry
+5. **Register a real routing provider.** The `RoutingAdapter` interface and registry
    exist; only the haversine approximation is implemented. This is now a one-class change.
-7. **Job-board and background-check integrations**, behind the adapter interfaces
+6. **Job-board and background-check integrations**, behind the adapter interfaces
    `07_Integration_Specifications.md` Section 1 requires.

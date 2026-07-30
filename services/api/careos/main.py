@@ -22,7 +22,12 @@ from careos.api.deps import authenticate, enforce_session_revocation
 from careos.api.v1 import agencies, auth, caregivers, clients, recruiting, visits
 from careos.config import get_settings
 from careos.core.context import request_id_var, source_ip_var
-from careos.core.errors import CareOSError, RateLimitExceededError, ValidationError
+from careos.core.errors import (
+    CareOSError,
+    CommitFailedError,
+    RateLimitExceededError,
+    ValidationError,
+)
 from careos.core.ratelimit import (
     Decision,
     Tier,
@@ -115,6 +120,8 @@ def create_app() -> FastAPI:
         3. **Check session revocation** — which costs a query, and so must sit behind the
            limiter rather than in front of it. Reversed, an unauthenticated flood would buy a
            database round trip per request, and the limiter would be protecting nothing.
+        4. **Commit the request's transaction**, after the handler and before the response
+           goes back. See `_commit_unit_of_work` for why it cannot live anywhere else.
         """
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
         request_id_token = request_id_var.set(request_id)
@@ -137,6 +144,13 @@ def create_app() -> FastAPI:
                 return JSONResponse(status_code=exc.status_code, content=exc.to_envelope())
 
             response = await call_next(request)
+
+            # Before any header work, because a failed commit replaces the response entirely.
+            commit_failure = await _commit_unit_of_work(request)
+            if commit_failure is not None:
+                commit_failure.headers["X-Request-ID"] = request_id
+                return commit_failure
+
             response.headers["X-Request-ID"] = request_id
             if decision is not None:
                 # Advertised on every answered request, not only on refusals, so a client can
@@ -192,6 +206,72 @@ def create_app() -> FastAPI:
         return {"status": "ok", "service": "careos-api"}
 
     return app
+
+
+async def _commit_unit_of_work(request: Request) -> JSONResponse | None:
+    """Commit the request's transaction. Returns a response to send *instead* on failure.
+
+    **Why here.** `db_session` is a dependency with `yield`, and FastAPI runs that teardown
+    after the response has been written to the socket. Committing there meant two things, both
+    bad, and both reproduced against a real server rather than argued from the docs:
+
+    * A client could not read its own write. The response came back in 3 ms and the commit
+      landed 300 ms later, so anything that created a resource and immediately used its id
+      could get a 404. That is what the caregiver-app end-to-end seed kept hitting.
+    * **A failed commit could not be reported.** The response was already gone, so there was no
+      status code left to change: with the commit forced to fail, the client received
+      `200 {"status": "clocked_in", "evv_record": "created"}` while the server logged the
+      rollback. A caregiver told their clock-in was recorded when it was not is the exact
+      failure this product exists to prevent.
+
+    Middleware is where a request can still change its own answer, so the commit belongs here.
+
+    `in_transaction()` is the test for whether to commit, and it means "did this request
+    succeed?". A handler that raised has already unwound through `db_session`, which rolled
+    back on the way past — so there is nothing open to commit. A handler that returned
+    normally, including one that returned an error response without raising, still holds its
+    transaction, and committing it preserves exactly what the old teardown did.
+    """
+    session = getattr(request.state, "unit_of_work", None)
+    if session is None or not session.in_transaction():
+        return None
+
+    if not session.is_active:
+        # A flush failed and the handler swallowed it, so the transaction can only be rolled
+        # back. The handler was about to answer as though the write had happened, which is the
+        # very thing this function exists to stop — so the answer becomes the truth instead.
+        logger.error(
+            "request.transaction_deactivated",
+            path=request.url.path,
+            method=request.method,
+            note="a database error was caught by a handler that then answered successfully",
+        )
+        await session.rollback()
+        return _commit_failed_response()
+
+    try:
+        await session.commit()
+    except Exception as exc:
+        logger.error(
+            "request.commit_failed",
+            path=request.url.path,
+            method=request.method,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        try:
+            await session.rollback()
+        except Exception:  # pragma: no cover - the connection is already in trouble
+            logger.exception("request.rollback_after_commit_failure_failed")
+        return _commit_failed_response()
+    return None
+
+
+def _commit_failed_response() -> JSONResponse:
+    error = CommitFailedError(
+        "The request could not be saved. Nothing was changed — please try again."
+    )
+    return JSONResponse(status_code=error.status_code, content=error.to_envelope())
 
 
 async def _apply_rate_limit(

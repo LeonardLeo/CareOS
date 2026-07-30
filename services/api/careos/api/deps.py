@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
+import structlog
 from fastapi import Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,8 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from careos.core.errors import AuthenticationError
 from careos.core.rbac import get_principal
 from careos.core.security import Principal, decode_token
-from careos.db.session import tenant_session
+from careos.db.session import begin_tenant_session, tenant_session
 from careos.modules.agency.models import AppUser
+
+logger = structlog.get_logger(__name__)
 
 
 async def authenticate(request: Request) -> Principal | None:
@@ -90,10 +93,45 @@ async def db_session(request: Request) -> AsyncIterator[AsyncSession]:
     The tenant comes from the verified token via `Principal`, never from the request body
     or query string (`05_API_Specification.md` Section 1). An unauthenticated request gets a
     session with no tenant set, which RLS renders unable to read any tenant-scoped row.
+
+    **This deliberately does not commit.** FastAPI runs a `yield` dependency's teardown after
+    the response has been sent, so committing here answered the client before the write was
+    durable — and left a failed commit with no status code to be reported in. The session is
+    published on `request.state.unit_of_work` and `careos.main` commits it in the middleware,
+    which still holds the response. Measured, not assumed: with the commit here the client
+    saw 200 in 3 ms and could not read its own write for another 300 ms.
+
+    The rollback stays here, because the exception path unwinds through this teardown before
+    any response exists — so a handler that raises has its transaction discarded before the
+    middleware ever sees it, and the middleware's "still in a transaction?" test is then
+    exactly "did this request succeed?".
     """
     principal: Principal | None = getattr(request.state, "principal", None)
-    async with tenant_session(principal.agency_id if principal else None) as session:
+    session = await begin_tenant_session(principal.agency_id if principal else None)
+    # Marks this session as the one the middleware is responsible for committing. Also what
+    # lets a test make *this* commit fail without touching the session the revocation check
+    # opens on the way in.
+    session.info["careos_request_unit_of_work"] = True
+    request.state.unit_of_work = session
+    try:
         yield session
+    except BaseException:
+        await session.rollback()
+        raise
+    finally:
+        request.state.unit_of_work = None
+        if session.in_transaction():
+            # The middleware commits every successful request, so reaching here with work
+            # still pending means the response never went through it. Discard rather than
+            # commit — a write nobody was told about is safer than one nobody checked — and
+            # say so, because it means the two halves of this have come apart.
+            logger.error(
+                "request.uncommitted_transaction_discarded",
+                path=request.url.path,
+                method=request.method,
+            )
+            await session.rollback()
+        await session.close()
 
 
 async def current_principal(request: Request) -> Principal:

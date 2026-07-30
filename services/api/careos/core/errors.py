@@ -92,3 +92,18 @@ class ComplianceGateError(CareOSError):
 class EVVTransmissionError(CareOSError):
     status_code = 502
     code = "EVV_TRANSMISSION_FAILED"
+
+
+class CommitFailedError(CareOSError):
+    """The request's work could not be made durable.
+
+    Distinct from a bare 500 because the client can act on it: the message states that nothing
+    was changed, which is true — the transaction is rolled back — so retrying is safe and, for
+    an idempotent write, is the right response.
+
+    It exists at all because the commit used to happen after the response was sent, where a
+    failure had no status code left to occupy and the client was told the write had succeeded.
+    """
+
+    status_code = 500
+    code = "COMMIT_FAILED"
