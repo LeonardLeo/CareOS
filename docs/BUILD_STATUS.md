@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 211 API tests against a real PostgreSQL instance, 13 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
+| Tests | 215 API tests against a real PostgreSQL instance, 16 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **Admin web app and caregiver app both built and working.** Caregiver app is an installable PWA, not React Native — see below |
 | Compliance review | **Not performed** |
@@ -167,7 +167,16 @@ What holds it up:
   because a clock-out arriving before its clock-in would be rejected on the merits and turn a
   network problem into lost data. After repeated failures it escalates to "call the office"
   instead of retrying in silence.
-- **Verified offline, not assumed.** 13 unit tests on the engine, and browser end-to-end tests
+- **Two real bugs the CI run found that local runs did not.** `flush()` had no mutual
+  exclusion, and it is triggered from four places — queueing an action, the reconnect event,
+  the foreground event, and the retry timer. Two overlapping flushes sent the same action
+  concurrently and the server correctly answered the loser with 409 "a request with this
+  Idempotency-Key is still in progress". Worse, the transport mapped that 409 to a permanent
+  rejection, so the app told a caregiver "could not send — call the office" about a clock-in
+  that had in fact succeeded. That is the worst failure this surface can produce: it errs
+  toward the caregiver believing they will not be paid. `flush()` is now serialized and a 409
+  is treated as retry-later. Both are pinned by tests that hang without the fix.
+- **Verified offline, not assumed.** 16 unit tests on the engine, and browser end-to-end tests
   that cut the network for real, clock in, restore it, and assert against the API that the
   visit synced. One test replays the same queued clock-in three times and asserts a single EVV
   record with one id and one timestamp — the dedup demonstrated rather than inferred.

@@ -160,6 +160,14 @@ export class HttpOutboxTransport implements OutboxTransport {
         if (error.status === 401) {
           return { status: "unreachable", message: "Session expired — sign in to sync" };
         }
+        // 409 on this endpoint means "a request with this Idempotency-Key is still in
+        // progress" — the action is not refused, it is already being processed. Treating it
+        // as a rejection was the worst bug in this app: it told a caregiver "could not send,
+        // call the office" about a clock-in that had in fact succeeded. Retrying is correct
+        // and safe, because the retry either replays the completed record or conflicts again.
+        if (error.status === 409) {
+          return { status: "unreachable", message: error.message };
+        }
         return { status: "rejected", message: error.message };
       }
       return {

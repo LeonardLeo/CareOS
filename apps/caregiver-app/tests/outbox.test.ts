@@ -357,3 +357,110 @@ describe("pruning", () => {
     expect([...storage.rows.values()][0]!.kind).toBe("clock_out");
   });
 });
+
+describe("concurrency", () => {
+  /** A transport that reports when send() has been entered and blocks until released. */
+  function blockingTransport() {
+    const sent: OutboxAction[] = [];
+    let release: ((outcome: SendOutcome) => void) | null = null;
+    let entered: (() => void) | null = null;
+    const firstSend = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const transport: OutboxTransport = {
+      send(action) {
+        sent.push({ ...action });
+        entered?.();
+        return new Promise<SendOutcome>((resolve) => {
+          release = resolve;
+        });
+      },
+    };
+    return {
+      transport,
+      sent,
+      firstSend,
+      release: (outcome: SendOutcome) => release?.(outcome),
+    };
+  }
+
+  it("does not send the same action twice when two flushes overlap", async () => {
+    // The bug this pins: queue() starts a flush, and the reconnect event, the foreground
+    // event, and the retry timer can each start another. Two overlapping flushes read the same
+    // pending row and both POST it with the same Idempotency-Key, and the server answers the
+    // loser with 409 "still in progress". CI's timing overlapped them; a local run against a
+    // loopback finished each request before the next flush began, so it never showed up.
+    const { transport, sent, firstSend, release } = blockingTransport();
+    const { outbox } = makeOutbox(transport);
+
+    await outbox.queue({
+      kind: "clock_in",
+      visitId: "v1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+
+    // Both started while the first request is still in flight.
+    const first = outbox.flush();
+    await firstSend;
+    const second = outbox.flush();
+
+    release({ status: "accepted" });
+    await Promise.all([first, second]);
+
+    expect(sent).toHaveLength(1);
+    expect(await outbox.pending()).toHaveLength(0);
+  });
+
+  it("a second flush joins the one in progress rather than starting another", async () => {
+    const { transport, firstSend, release } = blockingTransport();
+    const { outbox } = makeOutbox(transport);
+    await outbox.queue({
+      kind: "clock_in",
+      visitId: "v1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+
+    const a = outbox.flush();
+    await firstSend;
+    const b = outbox.flush();
+    release({ status: "accepted" });
+
+    // The same summary object, because it is the same run rather than a queued second one.
+    expect(await a).toBe(await b);
+  });
+
+  it("keeps retrying after an in-progress conflict instead of escalating", async () => {
+    // A 409 means the server is already processing this exact action. Treating it as a
+    // rejection told a caregiver "could not send, call the office" about a clock-in that had
+    // succeeded — the worst failure this app can produce, because it errs in the direction of
+    // the caregiver believing they will not be paid.
+    const transport = new ScriptedTransport([
+      {
+        status: "unreachable",
+        message: "A request with this Idempotency-Key is still in progress",
+      },
+      { status: "accepted" },
+    ]);
+    const { outbox } = makeOutbox(transport);
+
+    await outbox.queue({
+      kind: "clock_in",
+      visitId: "v1",
+      timestamp: "2026-07-29T09:00:00.000Z",
+      captureMethod: "mobile_gps",
+      geo: null,
+    });
+
+    await outbox.flush();
+    const stillPending = await outbox.pending();
+    expect(stillPending).toHaveLength(1);
+    expect(isEscalated(stillPending[0]!)).toBe(false);
+
+    await outbox.flush();
+    expect(await outbox.pending()).toHaveLength(0);
+  });
+});

@@ -156,12 +156,33 @@ export class Outbox {
   /**
    * Try to deliver everything pending, oldest first.
    *
+   * Serialized: a call made while a flush is already running joins the one in progress rather
+   * than starting a second. Without this the app really did send one action twice at once —
+   * `queue()` kicks off a flush, and the reconnect event, the foreground event, and the retry
+   * timer can each kick off another — and the server correctly answered the loser with
+   * 409 "a request with this Idempotency-Key is still in progress". CI's timing exposed it;
+   * a local run with a fast loopback never overlapped.
+   */
+  flush(): Promise<SyncSummary> {
+    if (this.inFlight !== null) return this.inFlight;
+    const run = this.flushOnce().finally(() => {
+      if (this.inFlight === run) this.inFlight = null;
+    });
+    this.inFlight = run;
+    return run;
+  }
+
+  private inFlight: Promise<SyncSummary> | null = null;
+
+  /**
+   * One pass over the queue.
+   *
    * Stops at the first unreachable action rather than continuing down the queue. Ordering
    * matters here: sending a clock-out for a visit whose clock-in has not landed would have
    * the server reject the clock-out on its merits, turning a recoverable network problem into
    * a permanent failure. One barrier keeps the queue in order for a whole visit.
    */
-  async flush(): Promise<SyncSummary> {
+  private async flushOnce(): Promise<SyncSummary> {
     const summary: SyncSummary = { accepted: 0, rejected: 0, deferred: 0 };
     const queue = await this.pending();
 
