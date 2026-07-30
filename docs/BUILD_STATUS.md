@@ -9,8 +9,8 @@ intentions.
 **Keep this current.** Drift between this file and the code is a bug
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
-**Last updated:** 2026-07-29
-**Assessed by:** build increment 9 (rate limiting)
+**Last updated:** 2026-07-30
+**Assessed by:** build increment 10 (shared rate-limit store)
 
 ---
 
@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 254 API tests against a real PostgreSQL instance, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
+| Tests | 272 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **Admin web app and caregiver app both built and working.** Caregiver app is an installable PWA, not React Native — see below |
 | Compliance review | **Not performed** |
@@ -66,7 +66,8 @@ ranking, ambient extraction, and claim scrubbing are all core to the roadmap.
     expiry — a watermark invalidates every outstanding session in one write and cannot grow.
   - It costs one query per authenticated request. That is deliberate: the requirement says
     "immediately", and any cache defines a window in which a terminated caregiver still has
-    access. Redis is in the compose stack and unused if this ever shows up in latency.
+    access. Redis is now in the request path for rate limiting and could hold this too if the
+    query ever shows up in latency — at the price of naming that window explicitly.
   - Comparison needs sub-second precision on both sides, so tokens carry a microsecond
     `iat_us` claim alongside the standard whole-second `iat`. The first version compared
     against `iat` and locked users out of *signing back in* for up to a second after a
@@ -111,12 +112,33 @@ ranking, ambient extraction, and claim scrubbing are all core to the roadmap.
     did not catch it, because that check reads a different traversal which already worked. The
     second: templates were ordered by length, so `/v1/visits/{visit_id}` beat the literal
     `/v1/visits/gaps`; specificity is wildcard count, not string length.
-  - **Limits are per instance, not per cluster.** The in-memory store means N application
-    instances enforce N x the documented figure. Redis is in the compose stack and unused; the
-    store is an interface so that swap is a constructor argument. Shipping the single-instance
-    version first is deliberate — it is correct in development and test and strictly better
-    than nothing — but the deployed figure is not the configured one until a shared store
-    exists.
+  - **Buckets are shared across instances** (`CAREOS_RATE_LIMIT_BACKEND=redis`), so the
+    configured figure is what the cluster enforces. This replaced an in-process store under
+    which N instances enforced N x the documented ceiling while the `RateLimit-*` headers kept
+    reporting the documented one — a limiter that looked correct from the outside and was not.
+    Production refuses to boot on the in-process backend for that reason; nothing about a
+    running system reveals the difference, so boot is the only place it can be caught.
+    - The refill runs as a **Lua script**, not a read-modify-write. Fifty concurrent requests
+      against a budget of five admit exactly five; the same pattern against a Python
+      read-modify-write admitted all fifty, which is what "not a limiter" means here.
+    - The clock is **Redis's own `TIME`**. Instances sharing a bucket must share a clock, or an
+      instance running fast refills everyone's bucket early. Tested by handing a store a
+      monotonic clock that never advances and watching the bucket recover anyway.
+    - **A Redis outage degrades rather than fails.** Limiting falls back to in-process buckets:
+      fail closed would make a legally time-sensitive clock-in depend on a cache, and fail open
+      would lift the brute-force ceiling on login exactly when the system is least healthy.
+      Logged at `error` with the consequence stated, re-logged while it persists, and a short
+      circuit breaker keeps a dead Redis from costing a connect timeout per request. Verified
+      against a real server by killing it mid-traffic: the API kept answering, the limit kept
+      applying, and six requests took 69 ms rather than six connect timeouts.
+    - The store's tests run against a **real Redis** in CI, and a test fails the build if that
+      service ever goes missing — a module that silently skips itself in CI looks like a pass.
+  - **`Retry-After` and `RateLimit-*` were invisible to the caregiver app** until this
+    increment. Neither is a CORS-safelisted response header, so a browser discarded both: the
+    server was sending pacing instructions the PWA could not read, and the outbox fell back to
+    its own backoff and retried a throttled server sooner than it had been asked to. Fixed by
+    naming them in `expose_headers`. Found while wiring the shared store, not by a test — the
+    suite calls the API same-origin through ASGI, where CORS never applies.
 - **CI.** Seven required jobs (`.github/workflows/ci.yml`). Three of them were failing on the
   first pull request for reasons worth recording, because each was invisible locally:
   - The repository's Python `.gitignore` carried an unanchored `lib/`, which matches a
@@ -315,7 +337,7 @@ These are honest placeholders, not oversights:
 | **EVV state assignments** | Seeded, marked `UNVERIFIED` | Confirm per state before operating there (`06_Compliance...` Section 1) |
 | **Service codes** | A handful of `T1019`-style rows | Populate per state and payer contract with a certified billing consultant |
 | **Object storage** | `*_s3_key` columns exist; nothing writes them | Encrypted S3 bucket plus an upload path |
-| **Redis** | In the compose stack, unused by the app | Wire up when caching or a durable queue is needed |
+| **Redis** | Holds the shared rate-limit buckets, and nothing else | Deploy it as a real dependency — HA, monitored, with the eviction policy set so buckets are not silently dropped under memory pressure. A single node quietly turns every limit back into a per-instance one |
 | **Drive time** | `HaversineRoutingAdapter` — straight-line distance with a circuity correction, marked `is_estimate` throughout | Adequate for ranking candidates against each other; register a real routing provider before travel time is quoted to a caregiver or paid on a timesheet |
 
 ## Not started
@@ -361,9 +383,10 @@ These are honest placeholders, not oversights:
    against a real API, which is a much stronger position than unexecuted code but is not the
    same as iOS Safari, a real GPS chip, and a genuinely bad connection. Decide native
    packaging at the same time, since iOS push and background sync depend on it.
-2. **A shared rate-limit store.** The limiter works and is tested, but its buckets live in
-   process memory, so the enforced ceiling is multiplied by the instance count. Redis is
-   already in the compose stack; the `RateLimitStore` interface exists for exactly this.
+2. **Observability.** There is now a component whose failure is invisible from the outside: a
+   degraded rate limiter still answers every request, just with the wrong ceiling. It logs, but
+   nothing collects the logs, and the same is true of the EVV anomaly counter and the bias
+   audit. Structured logging exists; metrics, traces, and somewhere to send them do not.
 3. **First real EVV integration** for one state, end to end through that vendor's sandbox.
    This is the assumption most likely to be wrong, and the cheapest time to find out is now.
 4. **Engage compliance counsel**, and run the bias audit on real outcomes before the ranking

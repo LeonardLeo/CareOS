@@ -36,7 +36,10 @@ dev: ## Run the API with reload
 # differ in what lands on sys.path, and running the friendlier one locally hid a collection
 # failure that only CI saw.
 .PHONY: test
-test: ## Run the full test suite (requires PostgreSQL)
+# CAREOS_TEST_REDIS_URL is what un-skips the shared rate-limit store's tests. Point it at a
+# Redis you do not mind being written to; the tests namespace their own keys and clean up after
+# themselves, but they do write. Without it the module skips and the rest of the suite runs.
+test: ## Run the full test suite (requires PostgreSQL; set CAREOS_TEST_REDIS_URL for the shared limiter)
 	cd $(API) && CAREOS_ENVIRONMENT=test .venv/bin/pytest -q
 
 .PHONY: test-isolation

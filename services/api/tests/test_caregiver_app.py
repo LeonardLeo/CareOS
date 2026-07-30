@@ -277,6 +277,26 @@ async def test_preflight_from_an_allowed_origin_permits_the_idempotency_header(c
     assert "authorization" in allowed
 
 
+async def test_pacing_headers_are_readable_from_the_device(client) -> None:
+    """`Retry-After` is useless to this app unless CORS exposes it.
+
+    Only a handful of response headers are readable cross-origin by default, and neither
+    `Retry-After` nor the `RateLimit-*` family is among them. This app calls the API from the
+    device rather than through a server of its own, so for a while the API was sending pacing
+    instructions the browser silently discarded: the outbox fell back to its own backoff and
+    retried a throttled server sooner than it had been asked to.
+
+    Nothing else in the suite could catch it — every other test reaches the app through ASGI on
+    a single origin, where CORS never runs.
+    """
+    response = await client.get("/health", headers={"Origin": "http://localhost:3001"})
+    exposed = {
+        h.strip().lower() for h in response.headers["access-control-expose-headers"].split(",")
+    }
+    assert "retry-after" in exposed
+    assert {"ratelimit-limit", "ratelimit-remaining", "ratelimit-reset"} <= exposed
+
+
 async def test_an_origin_outside_the_allowlist_is_not_granted_access(client) -> None:
     """A wildcard would let any site read a caregiver's schedule with their bearer token."""
     response = await client.options(

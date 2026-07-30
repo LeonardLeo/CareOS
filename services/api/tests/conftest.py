@@ -40,6 +40,10 @@ os.environ.setdefault("CAREOS_RATE_LIMIT_STANDARD_PER_MINUTE", "1000000")
 os.environ.setdefault("CAREOS_RATE_LIMIT_AUTH_PER_MINUTE", "1000000")
 os.environ.setdefault("CAREOS_RATE_LIMIT_AUTH_PER_IP_PER_MINUTE", "1000000")
 os.environ.setdefault("CAREOS_RATE_LIMIT_EVV_ANOMALY_PER_MINUTE", "1000000")
+# In-process buckets for the suite: no Redis to stand up, no cross-run bleed through a shared
+# server, and a settable clock. The shared store has its own module, which talks to a real Redis
+# rather than to a fake — see `tests/test_rate_limit_redis.py`.
+os.environ.setdefault("CAREOS_RATE_LIMIT_BACKEND", "memory")
 
 os.environ["CAREOS_DATABASE_URL"] = (
     f"postgresql+asyncpg://careos_app:careos_app@{PG_HOST}:{PG_PORT}/{TEST_DB}"
@@ -168,12 +172,11 @@ def _reset_rate_limits() -> None:
     by design — and a test that tightens the policy would leave every later test starting from
     a partly-spent allowance.
     """
-    from careos.core.ratelimit import get_rate_limiter
+    from careos.core.ratelimit import InMemoryRateLimitStore, get_rate_limiter
 
     store = get_rate_limiter().store
-    reset = getattr(store, "reset", None)
-    if callable(reset):
-        reset()
+    assert isinstance(store, InMemoryRateLimitStore)
+    store.reset()
 
 
 @pytest.fixture(autouse=True)

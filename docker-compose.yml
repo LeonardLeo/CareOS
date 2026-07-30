@@ -48,6 +48,10 @@ services:
       CAREOS_PRIVILEGED_DATABASE_URL: postgresql+asyncpg://careos_auth:careos_auth@postgres:5432/careos
       CAREOS_MIGRATION_DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/careos
       CAREOS_REDIS_URL: redis://redis:6379/0
+      # Compose runs one instance, so memory would be correct here — set to redis anyway so the
+      # path production takes is the path that gets exercised in development. Production may not
+      # set memory at all; `validate_settings` refuses to boot on it.
+      CAREOS_RATE_LIMIT_BACKEND: redis
       # Local-only values. Deployed environments read these from the secrets manager
       # (`08_Security_Architecture.md` Section 5) and never from a compose file.
       CAREOS_JWT_SECRET: dev-only-insecure-secret-change-me

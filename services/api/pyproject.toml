@@ -18,6 +18,10 @@ dependencies = [
     "email-validator>=2.2",
     "structlog>=24.4",
     "httpx>=0.28",
+    # Shared rate-limit buckets. >=5.0 for `redis.asyncio` as the supported async client and
+    # for `aclose()`; the token bucket runs as a Lua script, so `register_script` doing
+    # EVALSHA-with-NOSCRIPT-retry is load bearing rather than convenience.
+    "redis>=5.2",
 ]
 
 [project.optional-dependencies]

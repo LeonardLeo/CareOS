@@ -35,7 +35,7 @@ async def login(payload: schemas.LoginRequest) -> schemas.TokenPair:
     # Counted before the password is checked, so a wrong guess costs allowance too. Charging
     # only failures would let an attacker with one valid credential probe indefinitely, and
     # charging only successes would not limit guessing at all.
-    attempt = get_rate_limiter().check_login_attempt(
+    attempt = await get_rate_limiter().check_login_attempt(
         source_ip=source_ip_var.get(), email=payload.email
     )
     if not attempt.allowed:

@@ -227,9 +227,20 @@ Refusals carry `Retry-After`; answered requests carry `RateLimit-Limit`, `RateLi
 and `RateLimit-Reset`, so a client can slow down before it is turned away. The caregiver app's
 outbox honours the header in preference to its own backoff.
 
-Limits are configurable (`CAREOS_RATE_LIMIT_*`) and **per instance**: the buckets live in process
-memory, so N instances enforce N x the figure above. `RateLimitStore` is an interface and Redis is
-already in the compose stack — see BUILD_STATUS.
+Limits are configurable (`CAREOS_RATE_LIMIT_*`). The buckets live in Redis
+(`CAREOS_RATE_LIMIT_BACKEND=redis`), so the figures above are what the cluster enforces rather than
+what each instance enforces separately. The refill arithmetic runs as a Lua script and reads
+Redis's own clock, because a read-modify-write over the network lets N concurrent requests each
+see the same balance, and instances sharing a bucket must also share a clock.
+
+`memory` keeps the buckets in process and is the default for development and tests; it multiplies
+every limit by the instance count, so production refuses to boot on it.
+
+**When Redis is unreachable the API keeps serving and limiting falls back to in-process buckets.**
+Fail closed would make an EVV clock-in depend on a cache; fail open would lift the brute-force
+ceiling on login at the worst possible moment. Degraded means the limits still apply, just per
+instance. It is logged at `error` with the consequence spelled out, and a short circuit breaker
+keeps a dead Redis from costing a connect timeout on every request.
 
 ## Non-negotiable constraints
 

@@ -88,6 +88,18 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # A real Redis, because the shared rate-limit store is a Lua script whose whole point is
+      # atomicity across processes and a clock every instance agrees on. A fake would
+      # reimplement both in Python and prove neither. `test_ci_actually_runs_these` fails the
+      # job if this service goes missing, so removing it cannot quietly skip the module.
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -105,6 +117,9 @@ jobs:
           PGHOST: localhost
           PGPORT: "5432"
           PGPASSWORD: postgres
+          # A database index of its own, so the store's tests cannot collide with anything
+          # else a future job puts on this Redis.
+          CAREOS_TEST_REDIS_URL: redis://localhost:6379/9
         run: pytest -q --junitxml=test-results.xml
       - uses: actions/upload-artifact@v4
         if: always()

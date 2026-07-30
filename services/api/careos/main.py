@@ -47,8 +47,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     assert_every_table_is_classified()
     assert_all_routes_declare_access(app)
     assert_rate_limit_paths_exist(app)
+    limiter = get_rate_limiter()
+    # Not a gate: a Redis that is unreachable at boot logs an error and the limiter runs
+    # degraded. Refusing to start would take down clock-in — the one endpoint Section 9 says
+    # must never be refused — in order to protect a counter.
+    await limiter.startup()
     logger.info("careos.startup", environment=get_settings().environment)
     yield
+    await limiter.aclose()
     await dispose_engines()
 
 
@@ -77,7 +83,18 @@ def create_app() -> FastAPI:
         # clock-in from a browser would fail its preflight — silently, since the request never
         # reaches a handler that could report why.
         allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
-        expose_headers=["X-Request-ID"],
+        # `Retry-After` and the `RateLimit-*` family have to be named here or a browser hides
+        # them: only a handful of response headers are readable cross-origin by default, and
+        # these are not among them. The caregiver app's outbox reads `Retry-After` to pace its
+        # retries, so without this the header was being sent and silently discarded — the queue
+        # would fall back to its own backoff and retry a throttled server sooner than asked.
+        expose_headers=[
+            "X-Request-ID",
+            "Retry-After",
+            "RateLimit-Limit",
+            "RateLimit-Remaining",
+            "RateLimit-Reset",
+        ],
         max_age=600,
     )
 
@@ -200,7 +217,7 @@ async def _apply_rate_limit(
     if tier is Tier.exempt and resolved is not None and "clock-" in resolved[0]:
         # Exempt from throttling, per Section 9 — but the same section asks for abuse detection
         # in its place, so the volume is still counted and logged. This never refuses.
-        limiter.note_evv_volume(
+        await limiter.note_evv_volume(
             agency_id=str(agency_id) if agency_id else None,
             caregiver_id=(
                 str(getattr(principal, "caregiver_id", None))
@@ -209,7 +226,7 @@ async def _apply_rate_limit(
             ),
         )
 
-    decision = limiter.check(
+    decision = await limiter.check(
         tier=tier,
         agency_id=str(agency_id) if agency_id else None,
         source_ip=source_ip,

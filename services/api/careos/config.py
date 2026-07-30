@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     # --- Rate limits (`05_API_Specification.md` Section 9) --------------------
+    #: Where the token buckets live. "redis" shares them across instances, so the ceiling below
+    #: is the ceiling the cluster enforces; "memory" keeps them in this process, which multiplies
+    #: every limit by the instance count and is therefore only honest for a single instance.
+    #:
+    #: Defaults to memory so development and the test suite need no Redis. Production may not
+    #: use it — see `validate_settings`, and the reasoning in `careos.core.ratelimit`.
+    rate_limit_backend: Literal["memory", "redis"] = "memory"
     #: The documented default: 100 requests/minute per agency for standard endpoints.
     rate_limit_standard_per_minute: int = 100
     #: Login and refresh attempts per minute for one address/account pair. Tight on purpose:
@@ -109,6 +116,16 @@ def validate_settings(settings: Settings) -> Settings:
         # A localhost origin left in a production allowlist is a standing invitation: any page
         # can host a listener on 127.0.0.1 and read a caregiver's schedule from a real token.
         raise RuntimeError("CAREOS_CORS_ALLOWED_ORIGINS must not include localhost in production")
+    if settings.rate_limit_backend == "memory":
+        # A production deployment is more than one instance by definition, and in-process
+        # buckets there enforce N times the documented ceiling while the `RateLimit-*` headers
+        # keep reporting the documented one. The failure is invisible from the outside — the
+        # limiter looks like it is working — which is exactly why it is a boot gate rather than
+        # a warning.
+        raise RuntimeError(
+            "CAREOS_RATE_LIMIT_BACKEND must be 'redis' in production: in-process buckets "
+            "multiply every published limit by the instance count"
+        )
     return settings
 
 
