@@ -648,9 +648,12 @@ def get_rate_limiter() -> RateLimiter:
     """The process-wide limiter, built from settings.
 
     Cached because the store connection and, on the memory backend, the buckets themselves are
-    the state — a fresh limiter per request would allow everything. `reset_rate_limiter` exists
-    so tests can start from a clean slate and tighten the policy without one test's traffic
-    counting against another's.
+    the state — a fresh limiter per request would allow everything.
+
+    Deliberately without a `cache_clear` wrapper. There was one, unused; on the Redis backend it
+    would have dropped a limiter still holding an open connection pool, which is a leak rather
+    than a reset. Tests reach past it and clear the store or swap it, which is the thing they
+    actually want and does not strand a connection.
     """
     from careos.config import get_settings
 
@@ -664,7 +667,3 @@ def get_rate_limiter() -> RateLimiter:
         ),
         build_rate_limit_store(settings),
     )
-
-
-def reset_rate_limiter() -> None:
-    get_rate_limiter.cache_clear()
