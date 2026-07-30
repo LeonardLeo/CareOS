@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import enum
 import uuid
+from datetime import datetime
 
+from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -93,6 +94,13 @@ class AppUser(Base, PrimaryKeyMixin, TimestampMixin):
     #: (`08_Security_Architecture.md` Section 1). Enrolment state is tracked here so the
     #: requirement is enforceable at login rather than assumed.
     mfa_enrolled: Mapped[bool] = mapped_column(nullable=False, default=False)
+    #: Watermark for session revocation (`08_Security_Architecture.md` Section 6). Any access
+    #: token whose `iat` is at or before this instant is refused, which cuts a terminated
+    #: caregiver off from the API — and therefore from the cached PHI on their device, since
+    #: the caregiver app wipes it on a rejected token. NULL means never revoked.
+    sessions_revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 #: Roles for which MFA is mandatory, not advisory.

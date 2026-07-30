@@ -157,6 +157,34 @@ async def change_role(
     return schemas.UserOut.model_validate(user)
 
 
+@router.post("/users/{user_id}/revoke-sessions", response_model=schemas.UserOut)
+async def revoke_sessions(
+    user_id: uuid.UUID,
+    payload: schemas.RevokeSessions,
+    principal: Principal = Depends(requires(Role.owner_admin)),
+    session: AsyncSession = Depends(db_session),
+) -> schemas.UserOut:
+    """End every outstanding session for a user, effective on the next request they make.
+
+    The admin-facing half of the remote-wipe requirement in `08_Security_Architecture.md`
+    Section 6. Revoking does not delete the account or change the password — it invalidates
+    issued tokens, which is what is needed when a phone is lost or a caregiver is suspended
+    pending investigation and may yet come back.
+
+    Self-revocation is allowed: it signs the caller out everywhere, which is exactly what
+    someone whose own laptop was stolen needs, and unlike a role change it locks nobody out
+    permanently — they can sign in again.
+    """
+    user = await session.get(AppUser, user_id)
+    if user is None:
+        raise NotFoundError("User not found")
+
+    await agency_service.revoke_sessions(
+        session, principal=principal, user=user, reason=payload.reason
+    )
+    return schemas.UserOut.model_validate(user)
+
+
 @router.get(
     "/agencies/{agency_id}/compliance-reviews", response_model=list[schemas.ReviewStatusOut]
 )

@@ -11,6 +11,7 @@ const NAV = [
   { href: "/recruiting", label: "Recruiting", area: "recruiting" },
   { href: "/credentialing", label: "Credentialing", area: "credentialing" },
   { href: "/compliance", label: "Compliance", area: "compliance" },
+  { href: "/users", label: "Users", area: "users" },
 ] as const;
 
 const ROLE_LABEL: Record<string, string> = {

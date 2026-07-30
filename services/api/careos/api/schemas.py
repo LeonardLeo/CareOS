@@ -102,10 +102,28 @@ class UserOut(ORMModel):
     status: str
     mfa_enrolled: bool
     created_at: datetime
+    #: When this user's sessions were last cut off, or None. Returned so an administrator can
+    #: see that an offboarding actually took effect rather than having to trust that it did.
+    sessions_revoked_at: datetime | None = None
 
 
 class RoleChange(BaseModel):
     role: Role
+
+
+class RevokeSessions(BaseModel):
+    """Why access is being cut off.
+
+    Required rather than optional, and recorded in the audit log. Revocation is the action an
+    agency will need to evidence during an audit — "we removed access when this caregiver left"
+    is a claim, and a reason attached to a timestamp is what supports it.
+    """
+
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class TerminateCaregiver(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
 
 
 # --- Clients & care plans -------------------------------------------------------------

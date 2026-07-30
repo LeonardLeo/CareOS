@@ -56,6 +56,11 @@ class Principal:
     #: minimum-necessary rule (HIPAA; `08_Security_Architecture.md` Section 1) that a
     #: caregiver sees only visits assigned to them.
     caregiver_id: uuid.UUID | None = None
+    #: When this token was issued, at microsecond resolution (from the `iat_us` claim, not the
+    #: whole-second `iat`). Compared against the user's `sessions_revoked_at` watermark so a
+    #: revoked session stops working immediately (`08_Security_Architecture.md` Section 6)
+    #: rather than at the end of its 15-minute TTL.
+    issued_at: datetime | None = None
 
 
 def create_token(
@@ -81,6 +86,16 @@ def create_token(
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(seconds=ttl)).timestamp()),
         "jti": str(uuid.uuid4()),
+        # Microsecond issue time, alongside the standard whole-second `iat`.
+        #
+        # Session revocation compares a token's issue time against a database timestamp that
+        # has sub-second precision. With only `iat` — which is a NumericDate floored to the
+        # second — a token issued 400ms *after* a revocation is indistinguishable from one
+        # issued 400ms before it. Erring toward refusal then locks out the legitimate re-login
+        # that follows an offboarding, and erring the other way leaves a sub-second window in
+        # which a revoked token still works. Neither is acceptable, so the comparison is given
+        # the precision it needs rather than a tie-break rule.
+        "iat_us": int(now.timestamp() * 1_000_000),
     }
     if caregiver_id is not None:
         claims["caregiver_id"] = str(caregiver_id)
@@ -94,7 +109,9 @@ def decode_token(token: str, *, expected_type: TokenType = "access") -> Principa
             token,
             settings.jwt_secret,
             algorithms=[settings.jwt_algorithm],
-            options={"require": ["exp", "sub", "agency_id", "role", "token_type"]},
+            # `iat_us` is required, not optional: session revocation compares against it, so a
+            # token without one could not be evaluated and must not be accepted.
+            options={"require": ["exp", "iat", "iat_us", "sub", "agency_id", "role", "token_type"]},
         )
     except jwt.ExpiredSignatureError as exc:
         raise AuthenticationError("Access token has expired") from exc
@@ -118,4 +135,5 @@ def decode_token(token: str, *, expected_type: TokenType = "access") -> Principa
         agency_id=uuid.UUID(claims["agency_id"]),
         role=role,
         caregiver_id=uuid.UUID(caregiver_id) if caregiver_id else None,
+        issued_at=datetime.fromtimestamp(claims["iat_us"] / 1_000_000, tz=UTC),
     )

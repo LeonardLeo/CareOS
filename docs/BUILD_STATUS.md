@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-29
-**Assessed by:** build increment 7 (caregiver app — offline-first EVV)
+**Assessed by:** build increment 8 (offboarding, session revocation, user administration)
 
 ---
 
@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 215 API tests against a real PostgreSQL instance, 16 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
+| Tests | 226 API tests against a real PostgreSQL instance, 16 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **Admin web app and caregiver app both built and working.** Caregiver app is an installable PWA, not React Native — see below |
 | Compliance review | **Not performed** |
@@ -57,6 +57,28 @@ ranking, ambient extraction, and claim scrubbing are all core to the roadmap.
   per-encryption nonce; key required from the environment outside local/test.
 - **Idempotency.** `Idempotency-Key` enforced on side-effecting mutations, with replay,
   body-mismatch rejection, and in-flight conflict handling.
+- **Session revocation and offboarding.** `08_Security_Architecture.md` Section 6 requires an
+  admin to be able to immediately cut off a terminated caregiver *including the PHI cached on
+  their device*. Only the device half existed: the caregiver app wiped its cache when the API
+  rejected a token, and the API could not reject one.
+  - `app_user.sessions_revoked_at` is a watermark; any access token issued at or before it is
+    refused. Chosen over a token denylist, which would need every issued `jti` retained until
+    expiry — a watermark invalidates every outstanding session in one write and cannot grow.
+  - It costs one query per authenticated request. That is deliberate: the requirement says
+    "immediately", and any cache defines a window in which a terminated caregiver still has
+    access. Redis is in the compose stack and unused if this ever shows up in latency.
+  - Comparison needs sub-second precision on both sides, so tokens carry a microsecond
+    `iat_us` claim alongside the standard whole-second `iat`. The first version compared
+    against `iat` and locked users out of *signing back in* for up to a second after a
+    revocation — caught by a test asserting re-login works, not by reading the code.
+  - **Termination performs the revocation itself.** `POST /caregivers/{id}/terminate` sets
+    `terminated` and revokes the linked login in one transaction. Two endpoints an
+    administrator is trusted to call in sequence is how the second one does not happen on a
+    busy Friday. Before this there was no way to terminate anyone at all — `employment_status`
+    was only ever set to `onboarding` or `active`, so an agency could hire through this system
+    but not part ways through it.
+  - A reason is required and audited. "We removed their access when they left" is a claim, and
+    a reason attached to a timestamp and an actor is what evidences it.
 - **Error envelope.** Single shape for every failure, including FastAPI validation errors.
 - **CI.** Seven required jobs (`.github/workflows/ci.yml`). Three of them were failing on the
   first pull request for reasons worth recording, because each was invisible locally:
@@ -200,7 +222,6 @@ Honest limitations on this surface specifically:
 | **Telephony (IVR) fallback** | `capture_method: telephony` is accepted by the API and modelled throughout; no phone system is wired up. A caregiver with no smartphone is not yet served |
 | **No push notifications** | Flow A step 4 (accept a shift offer in one tap) needs push and a shift-offer endpoint; neither exists. iOS also only delivers web push to a home-screen-installed PWA, which affects the framework decision above and should be re-examined before launch |
 | **No background sync** | The queue flushes when the app is foregrounded or regains connectivity, not while closed. A caregiver who clocks out and force-quits before regaining signal syncs on next open |
-| **Remote wipe is local-only** | `08_Security_Architecture.md` Section 6 wants an admin to cut off a terminated caregiver including cached PHI. Sign-out and a rejected token clear the local cache; server-side session revocation is not built |
 | **Not verified on real devices** | Tested in Chromium at a phone viewport. No iOS Safari, no Android Chrome, no real GPS, no genuinely degraded network |
 
 ### Agency admin web app
@@ -212,7 +233,7 @@ both surfaces rather than picked by eye. The access token is held in an httpOnly
 JavaScript, because this surface renders PHI. Screens: dashboard, scheduling board with gap
 queue and ranked suggestions (Flow A), client roster with intake and care-plan authoring,
 compliance-exception queue, recruiting funnel and applicant pipeline, credentialing renewal
-queue, compliance review standing. Verified end to end against a live API — assigning a
+queue, compliance review standing, user administration (invite, role change, end sessions). Verified end to end against a live API — assigning a
 caregiver through the UI moves the visit out of the gap queue, and admitting a client then
 authoring a plan produces visits that appear on the scheduling timeline.
 
@@ -294,6 +315,7 @@ These are honest placeholders, not oversights:
 | Incident-response plan | **Not written.** Required before Phase 1 launch |
 | SOC 2 | **Not started.** Several underlying controls exist (access management, audit logging, encryption); no evidence collection |
 | Penetration test | **Not performed** |
+| Offboarding | **Built and tested.** Terminating a caregiver revokes their login in the same transaction, and an owner can end any user's sessions from the Users screen with an audited reason. Account *disablement* (as distinct from ending sessions) is still not exposed |
 
 ## Suggested next steps
 
@@ -301,9 +323,10 @@ These are honest placeholders, not oversights:
    against a real API, which is a much stronger position than unexecuted code but is not the
    same as iOS Safari, a real GPS chip, and a genuinely bad connection. Decide native
    packaging at the same time, since iOS push and background sync depend on it.
-2. **User administration in the admin app.** Client management, care-plan authoring, and the
-   compliance-exception queue now exist as first-class screens; inviting a user and changing a
-   role still require calling the API directly, even though both endpoints exist.
+2. **Rate limiting**, with the clock-in/out exemption in `05_API_Specification.md` Section 9.
+   Now the most conspicuous missing control: the login endpoint accepts unlimited attempts,
+   which matters more than it did before session revocation gave an attacker a reason to
+   hammer it.
 3. **First real EVV integration** for one state, end to end through that vendor's sandbox.
    This is the assumption most likely to be wrong, and the cheapest time to find out is now.
 4. **Engage compliance counsel**, and run the bias audit on real outcomes before the ranking

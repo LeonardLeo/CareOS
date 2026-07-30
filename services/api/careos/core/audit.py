@@ -35,6 +35,11 @@ class AuditAction(enum.StrEnum):
     user_role_changed = "user.role_changed"
     user_login_succeeded = "user.login_succeeded"
     user_login_failed = "user.login_failed"
+    #: An administrator cutting off a user's access, which also causes the caregiver app to
+    #: wipe locally cached PHI (`08_Security_Architecture.md` Section 6). Auditable in its own
+    #: right: it is the evidence that offboarding actually happened.
+    user_sessions_revoked = "user.sessions_revoked"
+    caregiver_terminated = "caregiver.terminated"
 
     client_created = "client.created"
     client_viewed = "client.viewed"

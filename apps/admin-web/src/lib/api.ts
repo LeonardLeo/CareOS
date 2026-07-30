@@ -222,6 +222,17 @@ export interface CarePlan {
   default_service_type_code: string | null;
 }
 
+export interface AgencyUser {
+  id: string;
+  email: string;
+  role: string;
+  status: string;
+  mfa_enrolled: boolean;
+  created_at: string;
+  /** Set once an administrator has ended this user's sessions. */
+  sessions_revoked_at: string | null;
+}
+
 export interface ReviewStatus {
   review_type: string;
   last_performed_on: string | null;
@@ -294,6 +305,26 @@ export const api = {
       token,
       method: "POST",
       body: { note },
+    }),
+
+  users: (token: string, agencyId: string) =>
+    apiFetch<AgencyUser[]>(`/v1/agencies/${agencyId}/users`, { token }),
+
+  inviteUser: (token: string, agencyId: string, body: Record<string, unknown>) =>
+    apiFetch<AgencyUser>(`/v1/agencies/${agencyId}/users`, { token, method: "POST", body }),
+
+  changeRole: (token: string, userId: string, role: string) =>
+    apiFetch<AgencyUser>(`/v1/users/${userId}/role`, {
+      token,
+      method: "PATCH",
+      body: { role },
+    }),
+
+  revokeSessions: (token: string, userId: string, reason: string) =>
+    apiFetch<AgencyUser>(`/v1/users/${userId}/revoke-sessions`, {
+      token,
+      method: "POST",
+      body: { reason },
     }),
 
   clients: (token: string) => apiFetch<Client[]>("/v1/clients", { token }),

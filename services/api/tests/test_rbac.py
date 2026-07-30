@@ -106,6 +106,7 @@ EXPECTED_ACCESS: dict[str, list[str]] = {
     "POST /v1/caregivers": ["owner_admin", "scheduler"],
     "POST /v1/caregivers/{caregiver_id}/credentials": ["owner_admin", "scheduler"],
     "POST /v1/caregivers/{caregiver_id}/exclusion-check": ["owner_admin"],
+    "POST /v1/caregivers/{caregiver_id}/terminate": ["owner_admin"],
     "POST /v1/clients": ["clinical_supervisor", "owner_admin", "scheduler"],
     "POST /v1/clients/{client_id}/care-plans": ["clinical_supervisor", "owner_admin"],
     "POST /v1/compliance-exceptions/{exception_id}/resolve": [
@@ -114,6 +115,7 @@ EXPECTED_ACCESS: dict[str, list[str]] = {
         "scheduler",
     ],
     "POST /v1/job-postings": ["owner_admin", "scheduler"],
+    "POST /v1/users/{user_id}/revoke-sessions": ["owner_admin"],
     "POST /v1/visits/{visit_id}/assign": ["owner_admin", "scheduler"],
     "POST /v1/visits/{visit_id}/clock-in": ["caregiver", "owner_admin", "scheduler"],
     "POST /v1/visits/{visit_id}/clock-out": ["caregiver", "owner_admin", "scheduler"],

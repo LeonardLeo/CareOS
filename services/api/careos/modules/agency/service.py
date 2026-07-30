@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -207,5 +207,52 @@ async def invite_user(
         entity_type="app_user",
         entity_id=user.id,
         after_state={"email": email, "role": role.value},
+    )
+    return user
+
+
+async def revoke_sessions(
+    session: AsyncSession,
+    *,
+    principal: Principal,
+    user: AppUser,
+    reason: str,
+) -> AppUser:
+    """Cut off every outstanding session for `user`, effective immediately.
+
+    The single point of truth for revocation, shared by the explicit admin action and by
+    caregiver termination. Having one implementation is the point: `08_Security_Architecture.md`
+    Section 6 requires that offboarding actually removes access, and two copies of this would
+    eventually disagree about whether it also writes an audit row.
+
+    The watermark is set from the database clock rather than the application's. A slow or
+    skewed app server could otherwise write a timestamp behind tokens it had just issued,
+    leaving them valid — the failure would be silent and would look like revocation working.
+
+    `clock_timestamp()`, not `now()`: `now()` is the transaction's start time, so in a
+    transaction that does other work first the watermark would sit measurably in the past and
+    tokens minted in between would survive. This leaves one narrow race — a login committing
+    between this read and this transaction's commit — bounded by the length of that
+    transaction. Closing it entirely needs the login path to serialize against the user row,
+    which is not worth the contention for a window of milliseconds.
+    """
+    revoked_at = (await session.execute(select(func.clock_timestamp()))).scalar_one()
+    before = {
+        "sessions_revoked_at": (
+            user.sessions_revoked_at.isoformat() if user.sessions_revoked_at else None
+        )
+    }
+    user.sessions_revoked_at = revoked_at
+    await session.flush()
+
+    await record_audit(
+        session,
+        principal=principal,
+        agency_id=principal.agency_id,
+        action=AuditAction.user_sessions_revoked,
+        entity_type="app_user",
+        entity_id=user.id,
+        before_state=before,
+        after_state={"sessions_revoked_at": revoked_at.isoformat(), "reason": reason},
     )
     return user

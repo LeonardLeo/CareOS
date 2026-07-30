@@ -98,6 +98,10 @@ export const NAV_ACCESS: Record<string, readonly string[]> = {
   credentialing: ["owner_admin", "scheduler", "clinical_supervisor", "auditor"],
   exceptions: ["owner_admin", "scheduler", "clinical_supervisor", "auditor"],
   compliance: ["owner_admin", "auditor"],
+  // An auditor can see who has access — that is a standing question in any access review —
+  // but the screen only offers the invite and revoke controls to an owner_admin, matching the
+  // API, which refuses them to everyone else regardless of what the UI renders.
+  users: ["owner_admin", "auditor"],
 };
 
 export function canSee(area: keyof typeof NAV_ACCESS, role: string): boolean {

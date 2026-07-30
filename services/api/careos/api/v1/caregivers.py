@@ -17,7 +17,8 @@ from careos.core.crypto import encrypt_field
 from careos.core.errors import NotFoundError
 from careos.core.rbac import requires
 from careos.core.security import Principal
-from careos.modules.agency.models import Role
+from careos.modules.agency import service as agency_service
+from careos.modules.agency.models import AppUser, Role
 from careos.modules.credentialing import service as credentialing
 from careos.modules.credentialing.models import (
     Caregiver,
@@ -247,3 +248,66 @@ async def credential_expirations(
         )
         for r in rows
     ]
+
+
+@router.post("/caregivers/{caregiver_id}/terminate", response_model=schemas.CaregiverOut)
+async def terminate_caregiver(
+    caregiver_id: uuid.UUID,
+    payload: schemas.TerminateCaregiver,
+    principal: Principal = Depends(requires(Role.owner_admin)),
+    session: AsyncSession = Depends(db_session),
+) -> schemas.CaregiverOut:
+    """Offboard a caregiver, cutting off their access in the same transaction.
+
+    Until now there was no way to terminate anyone at all: `employment_status` was only ever
+    set to `onboarding` on intake or `active` on clearance. An agency could hire through this
+    system but not part ways through it, which meant a departed caregiver kept a working login
+    and a phone holding client names and addresses.
+
+    Termination and revocation are deliberately one operation rather than two endpoints an
+    administrator is trusted to call in sequence. `08_Security_Architecture.md` Section 6 asks
+    that an admin be able to immediately cut off a terminated caregiver; making that a separate
+    step is how it ends up not happening on a busy Friday. Assignment already refuses a
+    caregiver who is not `active`, so this also removes them from scheduling.
+
+    Existing visits are left alone on purpose. Unassigning them here would silently empty a
+    day's schedule with no one told; they surface in the gap queue for a scheduler to refill,
+    which is a decision a person should make.
+    """
+    caregiver = await session.get(Caregiver, caregiver_id)
+    if caregiver is None:
+        raise NotFoundError("Caregiver not found")
+
+    before = {"employment_status": caregiver.employment_status.value}
+    caregiver.employment_status = EmploymentStatus.terminated
+    await session.flush()
+
+    revoked_user_id: str | None = None
+    if caregiver.app_user_id is not None:
+        user = await session.get(AppUser, caregiver.app_user_id)
+        if user is not None:
+            await agency_service.revoke_sessions(
+                session,
+                principal=principal,
+                user=user,
+                reason=f"caregiver terminated: {payload.reason}",
+            )
+            revoked_user_id = str(user.id)
+
+    await record_audit(
+        session,
+        principal=principal,
+        agency_id=principal.agency_id,
+        action=AuditAction.caregiver_terminated,
+        entity_type="caregiver",
+        entity_id=caregiver.id,
+        before_state=before,
+        after_state={
+            "employment_status": caregiver.employment_status.value,
+            "reason": payload.reason,
+            # Recorded even when null, so the audit trail distinguishes "had no login" from
+            # "had one and we forgot to revoke it".
+            "revoked_app_user_id": revoked_user_id,
+        },
+    )
+    return schemas.CaregiverOut.model_validate(caregiver)
