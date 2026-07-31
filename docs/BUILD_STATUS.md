@@ -107,6 +107,13 @@ ranking, ambient extraction, and claim scrubbing are all core to the roadmap.
     would otherwise reject a collector's non-JWT token before the endpoint could check it.
   - Verified against a live server rather than only in tests: the gauge read 0 with Redis up,
     1 after killing it mid-traffic, and 0 again once it returned.
+  - **Deployment constraint:** one worker per container, scaled with replicas. The registry is
+    in process memory, so several uvicorn workers behind one port would each keep their own
+    counters and a scrape would hit whichever answered, undercounting by about the worker count
+    with nothing to show for it. One process per container is the normal pattern and is right
+    here — each replica is its own scrape target and the collector sums them — but it is the
+    same shape of mistake as in-process rate-limit buckets, so it is recorded rather than
+    assumed.
 - **Rate limiting** (`05_API_Specification.md` Section 9). Token buckets, three tiers, and the
   exemption is the point of the design rather than a footnote:
   - **Clock-in and clock-out are never throttled**, as Section 9 requires. An EVV record that

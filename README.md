@@ -272,6 +272,13 @@ Production refuses to boot without one; local development may leave it empty. Th
 `public()` in the RBAC sense because a collector has no agency and fits no role in this model —
 inventing one would put a login in the monitoring path.
 
+**Run one worker per container and scale with replicas, not with `--workers N`.** The registry
+lives in process memory, so several uvicorn workers behind one port would each hold their own
+counters and a scrape would land on whichever answered — undercounting by roughly the worker
+count, invisibly. One process per container is the normal pattern and is correct here: each
+replica is a separate scrape target and the collector sums them. Same shape of mistake as
+in-process rate-limit buckets, which is why it is written down rather than assumed.
+
 ## Non-negotiable constraints
 
 From `docs/01_Product_Vision_and_Executive_Summary.md` Section 7 and
