@@ -9,8 +9,9 @@ add a route here that silently ends up with no access rules.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +24,7 @@ from careos.core.security import Principal
 from careos.modules.agency import service as agency_service
 from careos.modules.agency.models import Agency, AppUser, Role
 from careos.modules.audit import compliance_log
+from careos.modules.reporting import export_service
 
 router = APIRouter(tags=["agency"])
 
@@ -212,3 +214,59 @@ async def compliance_reviews(
         )
         for s in statuses
     ]
+
+
+@router.post("/agencies/{agency_id}/export", tags=["agencies"])
+async def export_agency_data(
+    agency_id: uuid.UUID,
+    principal: Principal = Depends(requires(Role.owner_admin)),
+    session: AsyncSession = Depends(db_session),
+) -> Response:
+    """Export everything this agency holds, as a ZIP of CSVs.
+
+    `06_Compliance_and_Regulatory_Requirements.md` Section 8 asks for this as a first-class
+    feature rather than an afterthought, "both as a compliance safeguard and a
+    competitive/trust signal against lock-in concerns". An agency that cannot leave with its
+    own records is locked in whatever the contract says.
+
+    **Owner-admin only, and audited with row counts.** The archive contains client dates of
+    birth, home addresses, and caregiver tax identifiers in readable form, because an export
+    of ciphertext the agency cannot decrypt would be portability in name only. That makes this
+    the largest single disclosure the system can perform, so it is restricted to the one role
+    that already controls the tenant, and it writes an audit row saying how much left and when.
+
+    `POST` rather than `GET` for the same reason: it is a significant, recorded action, and a
+    `GET` invites a browser, a proxy, or a prefetcher to take a copy of an agency's entire PHI
+    set without anyone meaning to.
+
+    No Idempotency-Key. The export has no external side effect to replay, and storing a
+    response body for later replay would leave the whole archive sitting in the idempotency
+    table — which is exactly the sort of second copy this endpoint should not create.
+    """
+    _assert_own_agency(principal, agency_id)
+
+    result = await export_service.build_export(
+        session, agency_id=agency_id, generated_by=str(principal.user_id)
+    )
+
+    await record_audit(
+        session,
+        principal=principal,
+        agency_id=agency_id,
+        action=AuditAction.agency_data_exported,
+        entity_type="agency",
+        entity_id=agency_id,
+        after_state={
+            "row_counts": result.row_counts,
+            "total_rows": result.total_rows,
+            "bytes": len(result.archive),
+            "format_version": export_service.EXPORT_FORMAT_VERSION,
+        },
+    )
+
+    filename = f"careos-export-{agency_id}-{datetime.now(UTC).date().isoformat()}.zip"
+    return Response(
+        content=result.archive,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

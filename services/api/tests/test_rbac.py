@@ -100,6 +100,9 @@ EXPECTED_ACCESS: dict[str, list[str]] = {
     "PATCH /v1/agencies/{agency_id}": ["owner_admin"],
     "PATCH /v1/users/{user_id}/role": ["owner_admin"],
     "POST /v1/agencies": ["*public*"],
+    # A full-agency PHI extract in one file. Owner-admin only, and deliberately not the
+    # auditor: tenant-wide read access is not a licence to walk out with the whole data set.
+    "POST /v1/agencies/{agency_id}/export": ["owner_admin"],
     "POST /v1/agencies/{agency_id}/users": ["owner_admin"],
     "POST /v1/applicants": ["owner_admin", "scheduler"],
     "POST /v1/applicants/{applicant_id}/hire": ["owner_admin"],

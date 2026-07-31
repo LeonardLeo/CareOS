@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-30
-**Assessed by:** build increment 13 (alerting)
+**Assessed by:** build increment 14 (data export)
 
 ---
 
@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 295 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
+| Tests | 308 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **Admin web app and caregiver app both built and working.** Caregiver app is an installable PWA, not React Native — see below |
 | Compliance review | **Not performed** |
@@ -81,6 +81,29 @@ ranking, ambient extraction, and claim scrubbing are all core to the roadmap.
   - A reason is required and audited. "We removed their access when they left" is a claim, and
     a reason attached to a timestamp and an actor is what evidences it.
 - **Error envelope.** Single shape for every failure, including FastAPI validation errors.
+- **Data export** (`POST /agencies/{id}/export`). `06_Compliance_and_Regulatory_Requirements.md`
+  Section 8 asks for export tooling as a first-class feature "not an afterthought", and the
+  PRD's non-functional table makes it a portability requirement.
+  - **Completeness is derived from the schema**, not from a list someone maintains. A table
+    added later is exported automatically; a table left out must be named with a reason, and a
+    test asserts the two sets cover every tenant table. A curated list goes stale invisibly —
+    the export succeeds and the agency discovers the gap after migrating.
+  - **Encrypted columns are exported decrypted**, under the name without the `_encrypted`
+    suffix. Ciphertext keyed to a secret the agency does not hold is not portability. The
+    archive is therefore a plaintext PHI extract, which is why it is owner-admin only —
+    deliberately not the auditor, whose tenant-wide read access is not a licence to walk out
+    with the whole data set — and why every export is audited with per-table row counts.
+  - **Reads go through the tenant session**, so RLS decides the contents rather than a
+    `WHERE agency_id = ...` clause that one refactor could drop. Verified by building the
+    export on a privileged session instead and watching seven tests fail, the isolation one
+    included.
+  - Refuses above `MAX_EXPORT_ROWS` with a 413 naming the limit. Streaming was considered and
+    rejected: a body generated after the status code is sent cannot report a mid-stream
+    failure, which is precisely the defect removed from the write path one increment earlier.
+  - The isolation test initially passed for the wrong reason — it searched the *compressed*
+    archive bytes, where no plaintext appears, so "another agency's data is absent" could not
+    fail. Caught only because the paired positive assertion failed the same way. It now
+    searches every decompressed member.
 - **Metrics** (`GET /metrics`, Prometheus exposition). Built because this system is full of
   things that degrade rather than break, and degradation left no outward trace:
   - **`careos_rate_limit_degraded`** is the one that justified the increment. A limiter that
@@ -413,9 +436,9 @@ These are honest placeholders, not oversights:
   payroll, legacy EHR import.
 - **Phase 2 and Phase 3 behaviour** — tables only, by design.
 - **Outbound webhooks** (`05_API_Specification.md` Section 7).
-- **Data export tooling** — required by the PRD's portability NFR and by
-  `06_Compliance...` Section 8, and explicitly meant to be first-class rather than an
-  afterthought.
+- **Staged export for very large agencies.** The synchronous export refuses above
+  `MAX_EXPORT_ROWS` rather than risking the instance. An agency past that ceiling needs a job
+  that writes to object storage — the `*_s3_key` columns exist and nothing writes them.
 - **Tracing** — no distributed tracing on the EVV/scheduling critical paths. Metrics and
   alerting now exist (see below); tracing is what would answer *why* a clock-in was slow
   rather than *that* it was.
@@ -529,11 +552,10 @@ a test rather than done by hand.
    against a real API, which is a much stronger position than unexecuted code but is not the
    same as iOS Safari, a real GPS chip, and a genuinely bad connection. Decide native
    packaging at the same time, since iOS push and background sync depend on it.
-2. **Somewhere to send the metrics, and alert rules.** The series now exist and are honest;
-   nothing scrapes them, nobody is paged, and there is still no distributed tracing. The
-   99.9% NFR needs someone woken up — metrics make that possible rather than doing it. The
-   first alerts worth writing are already obvious: `careos_rate_limit_degraded` above zero,
-   any `careos_evv_escalations_total` increase, and a non-zero commit-failure rate.
+2. **A real destination for the pages.** The rules, the routing, and the local delivery path
+   are built and tested; the receivers are placeholders, so an alert currently reaches a log
+   line rather than a person. This needs a PagerDuty routing key or a Slack webhook and is
+   otherwise a config change.
 3. **First real EVV integration** for one state, end to end through that vendor's sandbox.
    This is the assumption most likely to be wrong, and the cheapest time to find out is now.
 4. **Engage compliance counsel**, and run the bias audit on real outcomes before the ranking

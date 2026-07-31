@@ -315,6 +315,33 @@ renamed metric would leave a rule that parses, tests green, and never fires.
 Slack webhook that this repository should not hold. Until someone does that, alerts reach a log
 line in a container, which is not the same as being on call.
 
+## Data export
+
+`POST /v1/agencies/{id}/export` returns a ZIP of one CSV per table, plus a manifest and a
+README for whoever opens it. `06_Compliance_and_Regulatory_Requirements.md` Section 8 asks for
+this as a first-class feature "not an afterthought", and the PRD's non-functional table makes
+it a portability requirement: an agency that cannot leave with its own records is locked in
+whatever the contract says.
+
+Three things about it are deliberate.
+
+**Completeness is derived, not curated.** The table list comes from the SQLAlchemy metadata, so
+a table added next year is exported without anyone remembering. A table left out has to be named
+with a reason, and a test asserts the two sets cover everything. A hand-written list goes stale
+silently, and the agency finds out what was missing after they have migrated.
+
+**Encrypted columns come out readable.** `dob_encrypted` becomes `dob`. Ciphertext keyed to a
+secret the agency does not hold is not portability, it is the appearance of it. The consequence
+is that the archive is a plaintext PHI extract — so the endpoint is owner-admin only (not even
+the auditor), and every export writes an audit row with per-table row counts, which is what
+makes "how much left, and when" an answerable question.
+
+**It refuses rather than degrades.** The archive is built in memory, so above `MAX_EXPORT_ROWS`
+the caller gets a 413 naming the limit instead of an out-of-memory kill that takes every other
+request on the instance with it. Streaming was the obvious alternative and is worse: a response
+whose body is generated after the status code has been sent cannot report a mid-stream failure,
+which is the defect this codebase just spent an increment removing from the write path.
+
 ## Non-negotiable constraints
 
 From `docs/01_Product_Vision_and_Executive_Summary.md` Section 7 and

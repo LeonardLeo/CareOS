@@ -58,6 +58,7 @@ os.environ["CAREOS_MIGRATION_DATABASE_URL"] = (
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
+from careos.core.crypto import encrypt_field  # noqa: E402
 from careos.core.security import Principal, create_token, hash_password  # noqa: E402
 from careos.db.session import (  # noqa: E402
     dispose_engines,
@@ -360,12 +361,23 @@ async def make_client_with_plan(
     service_state: str = "NY",
     payer_type: str = "medicaid_waiver",
     service_code: str | None = "T1019",
+    legal_name: str = "Test Client",
+    dob: str | None = None,
+    address: str | None = None,
 ) -> tuple[uuid.UUID, uuid.UUID]:
-    """Create a client and a weekday care plan, returning their ids."""
+    """Create a client and a weekday care plan, returning their ids.
+
+    `dob` and `address` are written through the same field-level encryption the API uses, so a
+    test that reads them back is exercising real decryption rather than a plaintext column.
+    They default to None because most callers do not care and an encrypted column costs a
+    round trip through the cipher on every row.
+    """
     async with tenant_session(tenant.agency_id) as session:
         care_client = Client(
             agency_id=tenant.agency_id,
-            legal_name="Test Client",
+            legal_name=legal_name,
+            dob_encrypted=encrypt_field(dob),
+            address_encrypted=encrypt_field(address),
             service_state=service_state,
             primary_payer_type=payer_type,
             geo_lat=40.7128,

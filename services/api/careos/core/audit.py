@@ -72,6 +72,11 @@ class AuditAction(enum.StrEnum):
     #: who gets offered work, so the suggestion event is auditable in its own right.
     shift_suggestions_generated = "visit.suggestions_generated"
 
+    #: A full-agency data export. Audited because the archive is a plaintext PHI extract of
+    #: everything the agency holds — the single largest disclosure this system can perform, and
+    #: the first thing an auditor asks to see a record of.
+    agency_data_exported = "agency.data_exported"
+
     compliance_exception_raised = "compliance_exception.raised"
     compliance_exception_resolved = "compliance_exception.resolved"
 
