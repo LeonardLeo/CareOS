@@ -78,6 +78,10 @@ fix: ## Auto-fix lint and formatting
 typecheck: ## Static type check
 	cd $(API) && .venv/bin/mypy careos
 
+.PHONY: worker
+worker: ## Run the background job runner (EVV transmission, webhooks, credential notices)
+	cd $(API) && .venv/bin/python -m careos.workers.runner
+
 .PHONY: migration-check
 # The sequence CI's "Migration safety" job runs, against your local database. `alembic check`
 # is the part worth having: an empty autogenerate diff is what proves the migrations and the

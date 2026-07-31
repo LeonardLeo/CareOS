@@ -298,3 +298,112 @@ tests:
                 nothing was refused and nothing will be — this counter is the entire response.
                 Check the caregiver's recent EVV records for duplicates or a stuck client
                 retrying.
+
+  # --- Background workers ---------------------------------------------------------------------
+
+  - interval: 1m
+    name: a worker process that stops answering scrapes pages, but not instantly
+    input_series:
+      - series: 'up{job="careos-worker", instance="worker-1:9101"}'
+        values: "1 1 0 0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: CareOSWorkerDown
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: CareOSWorkerDown
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              job: careos-worker
+              instance: worker-1:9101
+            exp_annotations:
+              summary: "No background worker is answering scrapes"
+              description: >-
+                EVV transmission, webhook delivery, and credential-expiry notices all run in
+                this process. While it is down nothing is lost — the queues are Postgres tables
+                and drain when it returns — but EVV records age against submission deadlines and
+                webhook subscribers receive nothing. Check that the container is running before
+                looking at anything else.
+
+  - interval: 1m
+    name: a worker that is up but no longer completing EVV passes
+    # The case `up == 0` cannot see, and the reason both rules exist. The process answers every
+    # scrape while its pass is wedged — on a lock, a hung connection, or an exception loop — so
+    # availability looks perfect and no EVV record moves.
+    input_series:
+      # Frozen at t=0 while wall-clock time advances.
+      - series: 'careos_worker_last_run_timestamp_seconds{job="evv_transmission"}'
+        values: "0+0x40"
+    alert_rule_test:
+      # `time()` in a unit test starts at the Unix epoch, so at 10m the gap is 600s — inside
+      # the fifteen-minute threshold.
+      - eval_time: 10m
+        alertname: CareOSEvvTransmissionStalled
+        exp_alerts: []
+      # Past the threshold, and past the `for:` on top of it.
+      - eval_time: 25m
+        alertname: CareOSEvvTransmissionStalled
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: "EVV transmission has not completed a pass in fifteen minutes"
+              description: >-
+                The worker is answering scrapes but its EVV pass is not finishing. Fifteen
+                minutes is thirty missed cycles at the default interval. Look for a job timing
+                out against one agency's aggregator, or a pass that overran —
+                `worker.tick_overran` in the logs names the job and the agency count.
+
+  - interval: 1m
+    name: a worker completing passes normally is silent
+    input_series:
+      # Advancing one second per second: a healthy loop.
+      - series: 'careos_worker_last_run_timestamp_seconds{job="evv_transmission"}'
+        values: "0+60x40"
+      - series: 'careos_worker_last_run_timestamp_seconds{job="webhook_delivery"}'
+        values: "0+60x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: CareOSEvvTransmissionStalled
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: CareOSWebhookDeliveryStalled
+        exp_alerts: []
+
+  - interval: 1m
+    name: agencies skipped because another replica holds the lock are not a failure
+    # The negative case that keeps this rule usable. `skipped_locked` is the *normal* outcome
+    # for most agencies on most ticks as soon as there are two workers, and a rule that counted
+    # it would page on a healthy horizontally-scaled deployment.
+    input_series:
+      - series: 'careos_worker_job_runs_total{job="webhook_delivery", outcome="skipped_locked"}'
+        values: "0+50x40"
+      - series: 'careos_worker_job_runs_total{job="webhook_delivery", outcome="ok"}'
+        values: "0+10x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: CareOSWorkerJobsFailing
+        exp_alerts: []
+
+  - interval: 1m
+    name: a job erroring for one agency every pass raises a ticket
+    input_series:
+      - series: 'careos_worker_job_runs_total{job="evv_transmission", outcome="error"}'
+        values: "0+2x40"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: CareOSWorkerJobsFailing
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: CareOSWorkerJobsFailing
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job: evv_transmission
+            exp_annotations:
+              summary: "Background job evv_transmission is failing for at least one agency"
+              description: >-
+                One agency's job is raising every pass. The loop is deliberately built so this
+                does not stop other tenants — which is also why it can continue unnoticed. The
+                log line `worker.job_failed` carries the agency and the traceback.

@@ -43,6 +43,15 @@ scrape_configs:
     # of living in a config file that gets committed. Nothing resembling a real token is in
     # this repository on purpose.
 
+  # The background worker exposes its own endpoint from its own process. It has to: the alert
+  # that matters here is "nothing has transmitted EVV in an hour", and a worker reporting
+  # through the API's endpoint would go quiet in exactly the case where the API is healthy and
+  # the worker is dead — which is the case this scrape exists to catch.
+  - job_name: careos-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["worker:9101"]
+
   # Prometheus scraping itself, so that a rule evaluation failure or a full disk on the
   # monitoring host is visible from the same place as everything else. Monitoring that cannot
   # report its own health is the oldest way to be confidently wrong about an outage.

@@ -130,3 +130,39 @@ def render() -> bytes:
 
 
 CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
+
+
+# --- Background worker ------------------------------------------------------------------
+#
+# Scraped from the worker process, not the API — see `careos.workers.runner._serve_metrics`.
+# The question these exist to answer is "is anything actually running?", which the API cannot
+# answer about a separate process and which nothing answered at all before the runner existed.
+
+worker_job_runs_total = Counter(
+    "careos_worker_job_runs_total",
+    "Background job executions, by job and outcome.",
+    # `skipped_locked` is a normal outcome with several replicas, not a failure — separated so
+    # a dashboard does not read a healthy multi-worker deployment as one that is erroring.
+    ["job", "outcome"],
+    registry=REGISTRY,
+)
+
+worker_job_duration_seconds = Histogram(
+    "careos_worker_job_duration_seconds",
+    "Wall time for one job against one agency.",
+    ["job"],
+    # Up to the per-agency timeout: the interesting shape is the tail, where a slow receiver
+    # or a large backlog turns a tick into something that overruns its interval.
+    buckets=(0.05, 0.25, 1.0, 5.0, 15.0, 30.0, 60.0, 120.0),
+    registry=REGISTRY,
+)
+
+worker_last_run_timestamp = Gauge(
+    "careos_worker_last_run_timestamp_seconds",
+    "Unix time of the last completed pass of each job across all agencies.",
+    ["job"],
+    # A gauge of *when*, rather than a counter of how many, because the alert worth having is
+    # "nothing has transmitted EVV in an hour" — and a counter that stops increasing looks
+    # identical to a counter for a job that simply had no work.
+    registry=REGISTRY,
+)

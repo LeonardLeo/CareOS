@@ -46,7 +46,7 @@ ops/prometheus/          Scrape config, alert rules, and promtool unit tests for
 ops/alertmanager/        Severity routing and inhibitions
 ops/alert-sink/          Where alerts land locally, so the last hop is verifiable
 .github/workflows/ci.yml Required checks
-docker-compose.yml       Local stack (Postgres, Redis, API, Prometheus, Alertmanager)
+docker-compose.yml       Local stack (Postgres, Redis, API, worker, Prometheus, Alertmanager)
 ```
 
 The folder structure mirrors the modular-monolith decomposition on purpose, so the
@@ -67,6 +67,7 @@ make bootstrap-db     # creates the database and the careos_app / careos_auth ro
 make migrate
 make seed
 make dev              # API at http://localhost:8000/docs
+make worker           # the background job runner (EVV, webhooks, credential notices)
 
 # Admin web app (needs the API running)
 cd apps/admin-web && npm install && npm run dev   # http://localhost:3000
@@ -429,6 +430,46 @@ functions with tests, not a running process — there is no scheduler, cron entr
 consumer in this repository. Until one exists, a deployment queues webhooks and delivers none of
 them. That is a deployment gap rather than a code gap, but it is the difference between this
 working and not.
+
+## Background workers
+
+Three jobs run outside the request path: EVV transmission, webhook delivery, and the
+credential-expiry announcer. `python -m careos.workers.runner` is the process that runs them,
+and `docker compose up` starts it alongside the API.
+
+**It did not exist for several increments, and that was the largest gap in this system.** Every
+worker was written, tested, and green in CI while nothing called any of them — so a deployment
+would have queued EVV records that were never transmitted and webhook deliveries that were never
+sent. A queue with no consumer is a table.
+
+**Not Celery, not a cron container.** The work is three coroutines that take an `agency_id`; the
+missing part was a loop, a clock, and a way not to do it twice. The durable queue is already in
+Postgres — that is what the outbox pattern put there — so a broker would add a second datastore
+to run, a serialization format to version, and a "the queue is backed up" failure mode this
+system does not otherwise have. When a job needs fan-out or its own retry policy, that is the
+time to reach for one.
+
+**Scale across agencies, not within one.** Each job takes a Postgres advisory lock per (job,
+agency), so N replicas divide the tenants and no two ever work the same agency at once. `SKIP
+LOCKED` inside the workers is the second line — it stops two workers sending one delivery twice
+— but the lock is what makes a read-then-write job safe: the credential announcer checks for an
+existing notice before queueing one, and two workers can both read "no" before either writes.
+`docker compose up --scale worker=3` is therefore a capacity decision, not a correctness one.
+
+**One agency's failure is one agency's failure.** Every job is wrapped per agency and per tick:
+an exception is counted and logged, a job that hangs is abandoned after `JOB_TIMEOUT_SECONDS`,
+and the loop moves on. An agency with a misconfigured EVV adapter must not stop the other four
+hundred from transmitting — which is also why `CareOSWorkerJobsFailing` exists, since a loop
+that survives everything can also fail quietly forever.
+
+**Its own metrics endpoint, on its own port, behind the same bearer token as the API's.** A
+worker that reported through the API would go silent exactly when the API is healthy and the
+worker is dead — which is the case the alerts are for. `CareOSWorkerDown` catches the process
+being gone; `CareOSEvvTransmissionStalled` catches the harder one, a process that answers every
+scrape while its pass is wedged.
+
+SIGTERM stops the loop between agencies rather than mid-delivery: the current job finishes and
+commits, then the process exits. Measured at ~2 seconds in the local stack.
 
 ## Ending sessions vs disabling an account
 

@@ -138,10 +138,53 @@ async def tenant_session(agency_id: uuid.UUID | None) -> AsyncIterator[AsyncSess
 async def privileged_session() -> AsyncIterator[AsyncSession]:
     """Cross-tenant session for pre-authentication work only.
 
-    Legitimate callers: login (resolve a user by email before the tenant is known) and
-    agency provisioning (the tenant does not exist yet). Anything else belongs in
-    :func:`tenant_session`.
+    Legitimate callers: login (resolve a user by email before the tenant is known), agency
+    provisioning (the tenant does not exist yet), and the background runner enumerating
+    `agency.id` (a worker has no tenant until it picks one). Anything else belongs in
+    :func:`tenant_session` — including everything those callers do *after* the tenant is
+    known, which is why login hands off mid-request and the runner reads ids and nothing else.
     """
     session_factory = async_sessionmaker(get_privileged_engine(), expire_on_commit=False)
     async with session_factory() as session, session.begin():
         yield session
+
+
+@asynccontextmanager
+async def advisory_job_lock(key: str) -> AsyncIterator[bool]:
+    """Try to take a cluster-wide lock named `key`; yield whether we got it.
+
+    For background jobs, where "two workers doing this at once" ranges from wasteful to wrong.
+    `SKIP LOCKED` already stops two workers sending the same queued row twice, but it cannot
+    help a job that *reads* to decide whether to write — the credential-expiry announcer checks
+    for an existing delivery before queueing one, and two workers can both read "no" before
+    either writes.
+
+    Try-and-skip rather than wait-and-queue. A worker that cannot get the lock has nothing
+    useful to do with the time: another worker is already doing that exact job, and the next
+    tick is seconds away. Waiting would just build a queue of workers all about to discover
+    there is no work left.
+
+    Held on its own connection for the life of the block, so it spans the job's transactions
+    rather than ending with the first commit. Session-level, so it is released by
+    `pg_advisory_unlock` here and by the connection closing if this process dies — a crashed
+    worker cannot leave a job permanently locked.
+
+    `hashtext` narrows the key to 32 bits, so two different keys can collide. The consequence
+    is bounded and self-correcting: one job is skipped for one tick and runs on the next.
+    """
+    engine = get_engine()
+    async with engine.connect() as connection:
+        acquired = bool(
+            (
+                await connection.execute(
+                    text("SELECT pg_try_advisory_lock(hashtext(:key))"), {"key": key}
+                )
+            ).scalar_one()
+        )
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                await connection.execute(
+                    text("SELECT pg_advisory_unlock(hashtext(:key))"), {"key": key}
+                )

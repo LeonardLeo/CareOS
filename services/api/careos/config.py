@@ -55,6 +55,25 @@ class Settings(BaseSettings):
     #: anomalous. Never throttles — Section 9 forbids that — it only makes abuse visible.
     rate_limit_evv_anomaly_per_minute: int = 30
 
+    # --- Background worker (`careos.workers.runner`) --------------------------
+    #: How often the runner wakes up. Each job has its own interval on top of this, so the
+    #: poll is the resolution of the schedule rather than the schedule itself.
+    worker_poll_seconds: float = 15.0
+    #: EVV first: late transmission is a compliance problem, and the adapter has its own
+    #: backoff, so a tight poll costs little.
+    worker_evv_interval_seconds: float = 30.0
+    #: Webhooks match it. A receiver waiting minutes for an event polls the API instead,
+    #: which is the load webhooks exist to remove.
+    worker_webhook_interval_seconds: float = 30.0
+    #: Daily, because nothing changes about "expires in 12 days" between one minute and the
+    #: next. Safe to run more often — the announcer deduplicates — but pointless.
+    worker_credential_interval_seconds: float = 86_400.0
+    #: Port for the worker's own metrics endpoint. 0 disables it.
+    worker_metrics_port: int = 9101
+    #: Bind address for that endpoint. A collector in another container needs 0.0.0.0; a
+    #: deployment that scrapes over localhost should narrow it.
+    worker_metrics_host: str = "0.0.0.0"  # noqa: S104
+
     # --- Observability --------------------------------------------------------
     #: Bearer token a collector must present to scrape `/metrics`. Empty leaves the endpoint
     #: open, which is fine behind a private network and is the local default.

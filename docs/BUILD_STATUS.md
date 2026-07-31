@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-31
-**Assessed by:** build increment 17 (account disablement)
+**Assessed by:** build increment 18 (background worker runner)
 
 ---
 
@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 348 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
+| Tests | 360 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **Admin web app and caregiver app both built and working.** Caregiver app is an installable PWA, not React Native — see below |
 | Compliance review | **Not performed** |
@@ -489,10 +489,42 @@ are pinned by mutation — removing the dedupe check fails two tests, dropping t
 the key fails the one asserting that 30 days and 7 days are different events, and adding
 `caregiver_name` to the payload (it sits right there on the dashboard row) fails four.
 
-**Nothing schedules any of this.** `drain_agency`, `announce_expiring_credentials`, and the EVV
-transmission worker are tested library functions, not running processes — there is no scheduler
-or queue consumer in the repository. A deployment today would queue webhooks and deliver none.
-Listed under *Not started* below, because it applies to every worker rather than only this one.
+Delivery is driven by `careos.workers.runner`, which is its own process and its own container
+(see *Background workers* below). Before that existed, this whole section described code that
+ran only in tests.
+
+### Background workers
+`python -m careos.workers.runner`, its own container in the local stack. This closed the largest
+gap in the system: EVV transmission, webhook delivery, and the credential-expiry announcer were
+all written, tested, and green in CI while **nothing called any of them**, so a deployment would
+have queued EVV records that were never transmitted and webhook deliveries that were never sent.
+
+- **No broker.** Three coroutines taking an `agency_id`; what was missing was a loop, a clock,
+  and a way not to do it twice. The durable queue is already in Postgres — that is what the
+  outbox pattern put there — so Celery would add a datastore to operate and a failure mode this
+  system does not otherwise have.
+- **Advisory lock per (job, agency)**, so replicas divide the tenants and no two work the same
+  agency at once. `SKIP LOCKED` inside the workers stops duplicate sends; the lock is what makes
+  the read-then-write credential announcer safe, since two workers can otherwise both read "no
+  notice yet" before either writes. Scaling is a capacity decision, not a correctness one.
+- **Per-agency isolation.** Each job is wrapped per agency per tick: an exception is counted and
+  logged, a hang is abandoned after `JOB_TIMEOUT_SECONDS`, and the loop continues. One agency's
+  misconfigured adapter must not stop four hundred others.
+- **Its own metrics port, behind the same bearer token as the API's.** A worker reporting
+  through the API's endpoint would go silent in exactly the case the alerts exist for — API
+  healthy, worker dead. `CareOSWorkerDown` covers the process being gone and
+  `CareOSEvvTransmissionStalled` covers the harder case: a process that answers every scrape
+  while its pass is wedged. Both have promtool unit tests, including the negative one that
+  matters — `skipped_locked` is the *normal* outcome once there are two replicas, and a rule
+  counting it would page on a healthy deployment.
+- **SIGTERM stops between agencies**, so a delivery is not cut mid-flight; measured at ~2s.
+
+**Verified by running it**, not only by testing it: a real receiver on localhost, a real
+queued event, the runner started as a process, and a signed delivery arriving with nothing
+else driving it. That run also caught a defect no test could — the runner registered only the
+models it names, so a webhook delivery's foreign key to `agency` would have raised
+`NoReferencedTableError` on the first write in a deployment while every test passed. Fixed by
+importing the model registry, and pinned by a subprocess test.
 
 ### Schema
 All tables from `04_Data_Model_and_Schema.md` exist, in the documented migration order —
@@ -527,15 +559,6 @@ These are honest placeholders, not oversights:
 - **All third-party integrations** — background check, job boards, STT, clearinghouse,
   payroll, legacy EHR import.
 - **Phase 2 and Phase 3 behaviour** — tables only, by design.
-- **A process that runs the background workers.** EVV transmission, webhook delivery, and the
-  credential-expiry announcer are all written, tested, and invoked by nothing. There is no
-  scheduler, cron entry, or queue consumer, so in a deployment an EVV record would sit
-  untransmitted and a webhook subscription would receive nothing. Each worker is a coroutine
-  taking an `agency_id`; what is missing is the loop that enumerates agencies and calls them on
-  a cadence, plus a decision about running one instance or several. Concurrency is accounted
-  for — EVV transmission and webhook delivery both select their due rows `FOR UPDATE SKIP
-  LOCKED`, so two workers do not send the same thing twice — but nothing has been run that way
-  under load.
 - **Staged export for very large agencies.** The synchronous export refuses above
   `MAX_EXPORT_ROWS` rather than risking the instance. An agency past that ceiling needs a job
   that writes to object storage — the `*_s3_key` columns exist and nothing writes them.

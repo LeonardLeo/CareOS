@@ -65,6 +65,38 @@ services:
     volumes:
       - ./services/api/careos:/app/careos:ro
 
+  worker:
+    # The process that runs EVV transmission, webhook delivery, and the credential-expiry
+    # announcer. Its own container rather than a thread inside the API, for three reasons: a
+    # slow receiver must cost worker time and not request latency; the API scales on request
+    # volume while the worker scales on tenant count; and a worker that crashed should be
+    # visible as a restarting container rather than as an API that quietly stopped
+    # transmitting. Safe to scale — `docker compose up --scale worker=3` — because each job
+    # takes a per-(job, agency) advisory lock.
+    build:
+      context: ./services/api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      CAREOS_ENVIRONMENT: local
+      CAREOS_DATABASE_URL: postgresql+asyncpg://careos_app:careos_app@postgres:5432/careos
+      CAREOS_PRIVILEGED_DATABASE_URL: postgresql+asyncpg://careos_auth:careos_auth@postgres:5432/careos
+      CAREOS_REDIS_URL: redis://redis:6379/0
+      CAREOS_RATE_LIMIT_BACKEND: redis
+      CAREOS_JWT_SECRET: dev-only-insecure-secret-change-me
+      CAREOS_EVV_USE_SANDBOX: "true"
+      # Faster than the defaults so the local stack shows the loop working within a minute of
+      # `make up` rather than looking idle. A deployment leaves these alone.
+      CAREOS_WORKER_CREDENTIAL_INTERVAL_SECONDS: "300"
+    # No migrations here. The API container runs them, and two containers racing `alembic
+    # upgrade head` on the same database is how a deploy deadlocks on a lock nobody expected.
+    command: ["python", "-m", "careos.workers.runner"]
+    volumes:
+      - ./services/api/careos:/app/careos:ro
+
   # --- Observability ---------------------------------------------------------------------
   # Present in the local stack rather than only in a deployment guide, because the step most
   # likely to be wrong in an alerting setup is the last one, and it is the only step that

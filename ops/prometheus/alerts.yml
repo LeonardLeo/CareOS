@@ -180,3 +180,70 @@ groups:
             A caregiver runs this standing at a client's door on a phone. Two seconds is
             already poor; the outbox means nothing is lost, but the caregiver is waiting and
             will retry. Usually the database or the rate-limit round trip on this path.
+
+  - name: careos-workers
+    interval: 30s
+    rules:
+      # The failure this whole group exists for. Everything the workers do was tested and
+      # green while nothing ran them, and the way that surfaces in production is not an error
+      # — it is silence. An EVV record simply sits, and the first symptom is a state audit.
+      - alert: CareOSWorkerDown
+        expr: up{job="careos-worker"} == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "No background worker is answering scrapes"
+          description: >-
+            EVV transmission, webhook delivery, and credential-expiry notices all run in this
+            process. While it is down nothing is lost — the queues are Postgres tables and
+            drain when it returns — but EVV records age against submission deadlines and
+            webhook subscribers receive nothing. Check that the container is running before
+            looking at anything else.
+
+      # Distinct from the above on purpose: a worker can be up, scraping, and doing nothing —
+      # stuck on a lock, wedged on a hung connection, or looping on an exception it swallows.
+      # `up == 0` would never fire for any of those.
+      - alert: CareOSEvvTransmissionStalled
+        expr: >-
+          time() - max(careos_worker_last_run_timestamp_seconds{job="evv_transmission"}) > 900
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "EVV transmission has not completed a pass in fifteen minutes"
+          description: >-
+            The worker is answering scrapes but its EVV pass is not finishing. Fifteen minutes
+            is thirty missed cycles at the default interval. Look for a job timing out against
+            one agency's aggregator, or a pass that overran — `worker.tick_overran` in the
+            logs names the job and the agency count.
+
+      - alert: CareOSWebhookDeliveryStalled
+        expr: >-
+          time() - max(careos_worker_last_run_timestamp_seconds{job="webhook_delivery"}) > 900
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Webhook delivery has not completed a pass in fifteen minutes"
+          description: >-
+            Subscribers are not receiving events. A ticket rather than a page: nothing is lost,
+            deliveries are retried with backoff for six attempts, and the integrator's fallback
+            is to poll the API. Escalate if it is still stalled after a few hours, since
+            deliveries abandoned at the sixth attempt are not resent.
+
+      - alert: CareOSWorkerJobsFailing
+        # Errors, not timeouts and not `skipped_locked` — the latter is the normal outcome
+        # for most agencies on most ticks once there is more than one replica, and alerting
+        # on it would mean paging on a healthy horizontally-scaled deployment.
+        expr: >-
+          sum by (job) (rate(careos_worker_job_runs_total{outcome="error"}[10m])) > 0
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Background job {{ $labels.job }} is failing for at least one agency"
+          description: >-
+            One agency's job is raising every pass. The loop is deliberately built so this
+            does not stop other tenants — which is also why it can continue unnoticed. The
+            log line `worker.job_failed` carries the agency and the traceback.
