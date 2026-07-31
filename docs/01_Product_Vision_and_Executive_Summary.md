@@ -124,7 +124,7 @@ These apply to every phase.
 
 ## 8. How to use this document set
 
-Document 1 of 13. Reading order for a new team:
+Document 1 of 14. Reading order for a new team:
 
 1. This document — vision
 2. `02_Product_Requirements_Document.md` — what to build
@@ -132,4 +132,5 @@ Document 1 of 13. Reading order for a new team:
 4. `06_Compliance_and_Regulatory_Requirements.md` — constraints that cannot be violated
 5. The rest, by role
 
-`00_README_Index.md` has the full map. `BUILD_STATUS.md` has what currently exists.
+`00_README_Index.md` has the full map. `BUILD_STATUS.md` has what currently exists, and
+`13_Phase_1_Launch_Plan.md` has the sequence from one to the other.

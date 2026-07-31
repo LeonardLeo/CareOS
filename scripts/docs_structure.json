@@ -19,7 +19,7 @@
     [
       "##",
       "4",
-      "Product phases (the full arc \u2014 not just the MVP)"
+      "Product phases"
     ],
     [
       "##",
@@ -34,7 +34,7 @@
     [
       "##",
       "7",
-      "Non-negotiable constraints (apply to every phase)"
+      "Non-negotiable constraints"
     ],
     [
       "##",
@@ -61,17 +61,17 @@
     [
       "##",
       "3",
-      "Phase 3 \u2014 Revenue Engine (\"full product\")"
+      "Phase 3 \u2014 Revenue Engine"
     ],
     [
       "##",
       "4",
-      "Cross-cutting Non-Functional Requirements (apply to all phases)"
+      "Cross-cutting Non-Functional Requirements"
     ],
     [
       "##",
       "5",
-      "Explicit non-goals (all phases, current roadmap horizon)"
+      "Explicit non-goals"
     ],
     [
       "##",
@@ -98,7 +98,7 @@
     [
       "##",
       "4",
-      "Service/module boundaries (modular monolith decomposition)"
+      "Service/module boundaries"
     ],
     [
       "##",
@@ -108,7 +108,7 @@
     [
       "##",
       "6",
-      "Data flow for the core \"golden path\" (Phase 1 \u2192 3 integrated)"
+      "Data flow for the golden path"
     ],
     [
       "##",
@@ -197,7 +197,7 @@
     [
       "##",
       "7",
-      "Webhooks (outbound, for async external processes)"
+      "Webhooks"
     ],
     [
       "##",
@@ -338,7 +338,7 @@
     [
       "##",
       "7",
-      "Mobile app specific security (caregiver app)"
+      "Mobile app specific security"
     ],
     [
       "##",
@@ -348,7 +348,7 @@
     [
       "##",
       "9",
-      "Path to SOC 2 Type II (see also `06_Compliance_and_Regulatory_Requirements.md`, Section 7)"
+      "Path to SOC 2 Type II"
     ]
   ],
   "09_UX_Design_and_User_Flows.md": [
@@ -492,6 +492,123 @@
       "##",
       "7",
       "Document index"
+    ]
+  ],
+  "13_Phase_1_Launch_Plan.md": [
+    [
+      "##",
+      "0",
+      "What this document is"
+    ],
+    [
+      "##",
+      "1",
+      "Three corrections to the ordering in BUILD_STATUS"
+    ],
+    [
+      "##",
+      "2",
+      "Phase 0 \u2014 Start the clocks (week 1, everything in parallel)"
+    ],
+    [
+      "##",
+      "3",
+      "Phase 1 \u2014 Make it deployable (item 1)"
+    ],
+    [
+      "##",
+      "4",
+      "Phase 2 \u2014 Identity (item 2)"
+    ],
+    [
+      "##",
+      "5",
+      "Phase 3 \u2014 The compliance surface (items 3, 14, 5)"
+    ],
+    [
+      "###",
+      "5",
+      "1 EVV, one state, through the sandbox (item 3)"
+    ],
+    [
+      "###",
+      "5",
+      "2 Background check and exclusion screening (item 14)"
+    ],
+    [
+      "###",
+      "5",
+      "3 Counsel, BAAs, incident response (item 5)"
+    ],
+    [
+      "##",
+      "6",
+      "Phase 4 \u2014 Operability and the shadow period (items 4, 9, 6)"
+    ],
+    [
+      "###",
+      "6",
+      "1 A real pager (item 4)"
+    ],
+    [
+      "###",
+      "6",
+      "2 Tracing (item 9)"
+    ],
+    [
+      "###",
+      "6",
+      "3 Bias-audit shadow period (item 6)"
+    ],
+    [
+      "##",
+      "7",
+      "Phase 5 \u2014 Reach every caregiver (items 7, 8, 11, 12)"
+    ],
+    [
+      "###",
+      "7",
+      "1 Real devices and the packaging decision (item 7)"
+    ],
+    [
+      "###",
+      "7",
+      "2 Telephony clock-in (item 8)"
+    ],
+    [
+      "###",
+      "7",
+      "3 QR code on MFA enrolment (item 11)"
+    ],
+    [
+      "###",
+      "7",
+      "4 MFA for schedulers (item 12)"
+    ],
+    [
+      "##",
+      "8",
+      "Phase 6 \u2014 Scale and fidelity (items 10, 13)"
+    ],
+    [
+      "###",
+      "8",
+      "1 Staged export (item 10)"
+    ],
+    [
+      "###",
+      "8",
+      "2 A real routing provider (item 13)"
+    ],
+    [
+      "##",
+      "9",
+      "Sequencing summary"
+    ],
+    [
+      "##",
+      "10",
+      "What would make this plan wrong"
     ]
   ],
   "BUILD_STATUS.md": []

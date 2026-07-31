@@ -27,9 +27,11 @@ gives a first-week checklist for verifying actual project state against these do
 | 10 | `10_Roadmap_Milestones_Team_Plan.md` | Phase gates, milestone-by-milestone plan, hiring plan, risk register |
 | 11 | `11_GTM_and_Pricing_Strategy.md` | ICP, positioning, pricing model, go-to-market motion by stage |
 | 12 | `12_Engineering_Handoff_Guide.md` | How to pick this project up cold — read this first |
+| 13 | `13_Phase_1_Launch_Plan.md` | The run-up to a first real agency: phases, owners, gates, exit criteria |
 
 Build state is tracked separately, in `BUILD_STATUS.md`. The documents above describe the
-intended product; that file records what exists.
+intended product; that file records what exists, and document 13 sequences the gap between
+them.
 
 ## Scope covered
 
