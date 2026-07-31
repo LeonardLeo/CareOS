@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-30
-**Assessed by:** build increment 12 (metrics)
+**Assessed by:** build increment 13 (alerting)
 
 ---
 
@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 287 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
+| Tests | 295 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **Admin web app and caregiver app both built and working.** Caregiver app is an installable PWA, not React Native — see below |
 | Compliance review | **Not performed** |
@@ -114,6 +114,31 @@ ranking, ambient extraction, and claim scrubbing are all core to the roadmap.
     here — each replica is its own scrape target and the collector sums them — but it is the
     same shape of mistake as in-process rate-limit buckets, so it is recorded rather than
     assumed.
+- **Alerting** (`ops/prometheus/alerts.yml`, `ops/alertmanager/alertmanager.yml`). Eleven rules
+  across availability, compliance, security, and latency, in two severities — `page` means
+  someone is being harmed now, `ticket` means someone looks today. Anything else would be a
+  dashboard.
+  - **The rules are unit-tested with `promtool test rules`, in CI.** The negative cases are the
+    reason: a clock-in answering 409 "already clocked in" or 422 "compliance gate" must not
+    page, because that is the system working correctly, and a rule that fires on ordinary
+    traffic is how people learn to ignore a pager. Likewise an alert on a counter's *value*
+    rather than its increase would fire forever after the first EVV escalation. Each test is
+    named after the mistake it prevents, and each was verified by making that mistake and
+    watching the test fail — matching 4xx, dropping the `tier="auth"` filter, alerting on the
+    raw counter.
+  - **A separate test asserts every metric named in a rule is one the API exports.** `promtool`
+    cannot: its unit tests run against series written by hand in the same change, so a metric
+    renamed in code leaves a rule that parses, tests green, and never fires. That test reads
+    the shipped rule file rather than a fixture, and was checked by renaming a metric.
+  - Alertmanager routing is validated *and* exercised — `amtool check-config` accepts a file
+    that sends every page to the ticket receiver, so CI additionally asserts where each
+    severity actually lands. Verified by misrouting `page` and watching only the second check
+    catch it.
+  - `make up` runs Prometheus, Alertmanager, and a sink container, so the local stack covers
+    the whole path rather than stopping at "the rule is pending". The last hop is the one most
+    likely to be broken and the only one configuration review cannot check.
+  - **The receivers are placeholders**, and that is the honest limit of this: alerts reach a
+    log line, not a person. See "Not started".
 - **Rate limiting** (`05_API_Specification.md` Section 9). Token buckets, three tiers, and the
   exemption is the point of the design rather than a footnote:
   - **Clock-in and clock-out are never throttled**, as Section 9 requires. An EVV record that
@@ -391,10 +416,14 @@ These are honest placeholders, not oversights:
 - **Data export tooling** — required by the PRD's portability NFR and by
   `06_Compliance...` Section 8, and explicitly meant to be first-class rather than an
   afterthought.
-- **Tracing and alerting** — structured logs and Prometheus metrics exist (see below), but
-  nothing scrapes them here, there are no alert rules, and there is no distributed tracing on
-  the EVV/scheduling critical paths. The 99.9% NFR needs someone woken up, and metrics only
-  make that possible rather than doing it.
+- **Tracing** — no distributed tracing on the EVV/scheduling critical paths. Metrics and
+  alerting now exist (see below); tracing is what would answer *why* a clock-in was slow
+  rather than *that* it was.
+- **A real pager.** The alert rules and routing are built and tested, and the local stack
+  delivers end to end — but the receivers are placeholders. Wiring `page` to PagerDuty or
+  Slack needs credentials this repository should not hold, so today an alert reaches a log
+  line in a container. That is not being on call, and it is the one remaining gap between
+  this system and the 99.9% NFR.
 - **Infrastructure-as-code** — no Terraform, no deployed environment.
 - **Localization** — English only. The PRD requires English + Spanish at MVP.
 

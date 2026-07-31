@@ -42,8 +42,11 @@ services/api/            Modular-monolith backend (Python 3.11, FastAPI, Postgre
     scripts/             Reference-data seeding
   alembic/versions/      Migrations, sequenced per 04_Data_Model_and_Schema.md Section 8
   tests/                 Includes the CI-required multi-tenant isolation suite
+ops/prometheus/          Scrape config, alert rules, and promtool unit tests for them
+ops/alertmanager/        Severity routing and inhibitions
+ops/alert-sink/          Where alerts land locally, so the last hop is verifiable
 .github/workflows/ci.yml Required checks
-docker-compose.yml       Local stack
+docker-compose.yml       Local stack (Postgres, Redis, API, Prometheus, Alertmanager)
 ```
 
 The folder structure mirrors the modular-monolith decomposition on purpose, so the
@@ -278,6 +281,39 @@ counters and a scrape would land on whichever answered — undercounting by roug
 count, invisibly. One process per container is the normal pattern and is correct here: each
 replica is a separate scrape target and the collector sums them. Same shape of mistake as
 in-process rate-limit buckets, which is why it is written down rather than assumed.
+
+## Alerting
+
+`ops/prometheus/alerts.yml` holds the rules, `ops/alertmanager/alertmanager.yml` routes them,
+and `make up` brings up Prometheus, Alertmanager, and a sink so the whole path runs locally —
+metric changes, rule fires, route resolves, something receives it. The last step is the one
+most likely to be broken and the only one you cannot verify by reading configuration.
+
+Two severities, because the only useful question about an alert is whether it should wake
+someone. `page` means a caregiver or an agency is being harmed right now; `ticket` means
+someone needs to look today. Anything else is a dashboard. The failure mode of an alerting
+system is not missing an incident, it is firing often enough that a real one gets ignored.
+
+| Pages | Tickets |
+|---|---|
+| API not answering scrapes | Rate limiting degraded to per-instance (pages after an hour) |
+| Clock-in/out returning 5xx | EVV records escalated to a human |
+| Writes failing to commit | Aggregator rejecting records, or an adapter misconfigured |
+| | Anomalous EVV volume; sustained auth refusals; slow clock-in |
+
+**The rules are unit-tested** (`promtool test rules`, run in CI), and the negative cases are the
+point. A clock-in answering 409 "already clocked in" or 422 "compliance gate" must not page —
+that is the system working. A counter that is merely non-zero is not an event; only an increase
+is, or the first EVV escalation alerts forever. Each of those tests is named after the mistake
+it prevents, and each was checked by making the mistake and watching the test fail.
+
+CI also asserts that every metric named in a rule is one the API actually exports. `promtool`
+cannot catch that — its tests run against series written by hand in the same change — so a
+renamed metric would leave a rule that parses, tests green, and never fires.
+
+**The receivers are placeholders.** Wiring `page` to a real pager needs a PagerDuty key or a
+Slack webhook that this repository should not hold. Until someone does that, alerts reach a log
+line in a container, which is not the same as being on call.
 
 ## Non-negotiable constraints
 

@@ -17,6 +17,10 @@ on:
 env:
   PYTHON_VERSION: "3.11"
   CAREOS_ENVIRONMENT: test
+  # Pinned so an alert-rule check cannot start passing or failing because upstream
+  # changed PromQL behaviour between runs.
+  PROMETHEUS_VERSION: "3.1.0"
+  ALERTMANAGER_VERSION: "0.28.0"
 
 jobs:
   lint:
@@ -230,6 +234,46 @@ jobs:
               fi
             done
           fi
+
+  alert-rules:
+    name: Alert rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install promtool and amtool
+        run: |
+          set -euo pipefail
+          curl -sSL "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz" \
+            | tar xz --strip-components=1 -C /usr/local/bin \
+                "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool"
+          curl -sSL "https://github.com/prometheus/alertmanager/releases/download/v${ALERTMANAGER_VERSION}/alertmanager-${ALERTMANAGER_VERSION}.linux-amd64.tar.gz" \
+            | tar xz --strip-components=1 -C /usr/local/bin \
+                "alertmanager-${ALERTMANAGER_VERSION}.linux-amd64/amtool"
+      - name: Configuration is valid
+        working-directory: ops/prometheus
+        run: promtool check config prometheus.yml
+      - name: Alert rules behave as intended
+        # The unit tests, not just a syntax check. They pin the negative cases — a clock-in
+        # answering 409 must not page, a flat counter must not keep alerting — because a rule
+        # that fires on ordinary traffic is how people learn to ignore the pager.
+        working-directory: ops/prometheus
+        run: promtool test rules alerts_test.yml
+      - name: Alertmanager routing is valid
+        run: amtool check-config ops/alertmanager/alertmanager.yml
+      - name: Severities reach the receivers they are meant to
+        # `check-config` accepts a file whose routes send every page to the ticket receiver.
+        # This asserts where each severity actually lands.
+        run: |
+          set -euo pipefail
+          for pair in "page:page-placeholder" "ticket:ticket-placeholder"; do
+            severity="${pair%%:*}"; expected="${pair##*:}"
+            actual=$(amtool config routes test \
+              --config.file=ops/alertmanager/alertmanager.yml "severity=$severity" | tail -1)
+            if [ "$actual" != "$expected" ]; then
+              echo "::error::severity=$severity routes to '$actual', expected '$expected'"
+              exit 1
+            fi
+          done
 
   security-scan:
     name: Dependency and secret scan

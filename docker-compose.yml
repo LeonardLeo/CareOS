@@ -65,5 +65,44 @@ services:
     volumes:
       - ./services/api/careos:/app/careos:ro
 
+  # --- Observability ---------------------------------------------------------------------
+  # Present in the local stack rather than only in a deployment guide, because the step most
+  # likely to be wrong in an alerting setup is the last one, and it is the only step that
+  # cannot be verified by reading configuration.
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    depends_on:
+      - api
+    volumes:
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      # Short retention: this stack exists to prove the wiring, not to keep history.
+      - --storage.tsdb.retention.time=6h
+    ports:
+      - "9090:9090"
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.0
+    volumes:
+      - ./ops/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    ports:
+      - "9093:9093"
+
+  alert-sink:
+    # Where `page` and `ticket` land locally. A real deployment replaces this with PagerDuty
+    # or Slack; see ops/alertmanager/alertmanager.yml, and BUILD_STATUS for what that means
+    # for the honest description of this system's alerting.
+    image: python:3.11-alpine
+    volumes:
+      - ./ops/alert-sink/sink.py:/sink.py:ro
+    command: ["python", "-u", "/sink.py"]
+    ports:
+      - "9099:9099"
+
 volumes:
   postgres_data:

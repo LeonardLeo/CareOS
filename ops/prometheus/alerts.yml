@@ -1,0 +1,182 @@
+# Alerting rules for CareOS.
+#
+# Written against the metrics in `careos/core/metrics.py`, and unit-tested in `alerts_test.yml`
+# — `promtool test rules` runs them in CI, so a rule that would never fire, or one that fires on
+# ordinary traffic, fails the build rather than being discovered during an incident.
+#
+# Two severities, because the only useful question about an alert is whether it should wake
+# someone:
+#
+#   page   — a caregiver or an agency is being harmed right now, or is about to be.
+#   ticket — something needs a person today, not tonight.
+#
+# Everything else is a dashboard, not an alert. The failure mode of an alerting system is not
+# missing an incident, it is firing so often that a real one is ignored, so the bar for `page`
+# here is deliberately high and each rule states what the person woken up should do.
+
+groups:
+  - name: careos-availability
+    interval: 30s
+    rules:
+      - alert: CareOSApiDown
+        expr: up{job="careos-api"} == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "CareOS API instance {{ $labels.instance }} is not answering scrapes"
+          description: >-
+            The instance has failed scrapes for two minutes. If every instance is down,
+            caregivers cannot clock in and the on-device outbox is holding their visits —
+            those are not lost, but they age, and EVV records have submission deadlines.
+            Check the load balancer first: a single instance failing here is capacity, all of
+            them is an outage.
+
+      - alert: CareOSClockInFailing
+        # The route label is the template, so this matches every visit id. 5xx only: a clock-in
+        # can legitimately answer 4xx — 409 when it has already happened, 422 on a compliance
+        # gate — and paging on those would mean paging on the system working correctly.
+        expr: >-
+          sum(rate(careos_http_requests_total{route=~".*/clock-(in|out)", status=~"5.."}[5m])) > 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Clock-in/out is returning server errors"
+          description: >-
+            EVV clock-in is the one endpoint `05_API_Specification.md` Section 9 says must
+            never be refused, and a 5xx here becomes an unpaid visit for the caregiver and a
+            compliance exception for the agency. The device outbox will retry, so the window
+            to fix this before anything is lost is hours rather than minutes — but it is the
+            highest-priority failure in this system.
+
+      - alert: CareOSWritesFailing
+        expr: sum(rate(careos_request_commit_failures_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "Requests are being answered 500 because their transaction will not commit"
+          description: >-
+            The API is refusing to confirm writes it cannot make durable, which is correct
+            behaviour and means the database is in trouble — connection exhaustion, disk, or a
+            failover in progress. Nothing has been silently lost: every one of these was
+            rolled back and the client was told so.
+
+  - name: careos-compliance
+    interval: 30s
+    rules:
+      - alert: CareOSEvvEscalations
+        # Any escalation at all. These are records that exhausted their retries, so the number
+        # is small by construction and a threshold above zero would only delay the person who
+        # has to deal with them.
+        expr: increase(careos_evv_escalations_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "EVV records have exhausted their retries and need a human"
+          description: >-
+            An escalated record is an unattended compliance liability, not a queue backlog: it
+            will not be retried again and it will not transmit on its own. Work the
+            compliance-exception queue. If the count is climbing steadily, the aggregator is
+            probably rejecting a whole class of record rather than individual ones.
+
+      - alert: CareOSEvvRejectionsSustained
+        expr: sum(rate(careos_evv_transmissions_total{outcome="rejected"}[30m])) > 0
+        for: 30m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "The EVV aggregator is rejecting records"
+          description: >-
+            Sustained rejections usually mean a field map has drifted from the vendor's current
+            specification rather than one bad visit. Check a rejected payload against the
+            state's adapter before reprocessing, or the retries will be rejected too.
+
+      - alert: CareOSEvvAdapterMisconfigured
+        expr: increase(careos_evv_transmissions_total{outcome="configuration_error"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "EVV records cannot be transmitted because of configuration, not data"
+          description: >-
+            No adapter registered for a state, or a sandbox adapter refused in production.
+            Waiting will not clear it — these records will keep failing until the configuration
+            changes, and every one of them is accruing toward an escalation.
+
+      - alert: CareOSAnomalousEvvVolume
+        expr: increase(careos_evv_anomalous_volume_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "A caregiver is producing clock-in volume no human working could produce"
+          description: >-
+            Section 9 asks for abuse detection in place of throttling on this endpoint, so
+            nothing was refused and nothing will be — this counter is the entire response.
+            Check the caregiver's recent EVV records for duplicates or a stuck client retrying.
+
+  - name: careos-security
+    interval: 30s
+    rules:
+      - alert: CareOSRateLimitDegraded
+        expr: max(careos_rate_limit_degraded) == 1
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Rate limits are being enforced per instance, not per cluster"
+          description: >-
+            The shared bucket store is unreachable, so each instance is applying the published
+            limits on its own and the cluster as a whole is enforcing roughly N times them.
+            Nothing is failing for users, which is the design — but the brute-force ceiling on
+            login is the control that just got weaker, so this does not wait indefinitely.
+            Check Redis.
+
+      - alert: CareOSRateLimitDegradedProlonged
+        expr: max(careos_rate_limit_degraded) == 1
+        for: 1h
+        labels:
+          severity: page
+        annotations:
+          summary: "Rate limiting has been degraded for an hour"
+          description: >-
+            Escalated from the ticket of the same name. An hour is long enough that this is not
+            a Redis restart, and the login brute-force ceiling has been multiplied by the
+            instance count for that whole time.
+
+      - alert: CareOSAuthBruteForce
+        expr: sum(rate(careos_rate_limit_refusals_total{tier="auth"}[5m])) > 1
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Sustained refusals on authentication endpoints"
+          description: >-
+            The limiter is doing its job — this is not an outage, it is a report that someone
+            is working through passwords or addresses. Worth a look at the source addresses and
+            at whether any account is close to being guessed. Investigate before deciding
+            whether to block upstream; a shared office NAT can produce this innocently.
+
+  - name: careos-latency
+    interval: 30s
+    rules:
+      - alert: CareOSClockInSlow
+        expr: >-
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(careos_http_request_duration_seconds_bucket{route=~".*/clock-(in|out)"}[10m])
+            )
+          ) > 2
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Clock-in is slow at the 95th percentile"
+          description: >-
+            A caregiver runs this standing at a client's door on a phone. Two seconds is
+            already poor; the outbox means nothing is lost, but the caregiver is waiting and
+            will retry. Usually the database or the rate-limit round trip on this path.

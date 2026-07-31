@@ -33,6 +33,11 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
     "types-python-dateutil",
+    # The alert-rule tests read ops/prometheus/alerts.yml. PyYAML arrives transitively via
+    # uvicorn[standard] today, which is not a reason to depend on it implicitly — a transitive
+    # dependency that disappears breaks the tests with an ImportError that names nothing.
+    "pyyaml>=6.0",
+    "types-PyYAML",
 ]
 
 [build-system]

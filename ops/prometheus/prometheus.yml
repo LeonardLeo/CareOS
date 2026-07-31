@@ -1,0 +1,51 @@
+# Prometheus scrape and alerting configuration for the local stack.
+#
+# `docker-compose.yml` mounts this alongside `alerts.yml`. It is the local shape of a deployed
+# setup rather than a toy: the same rule file is loaded, and the same Alertmanager routing runs,
+# so a rule that would misfire is visible here rather than only in production.
+
+global:
+  # Every alert's `for:` duration is a multiple of this, so a shorter interval changes when
+  # things fire. 15s keeps `up == 0` detection inside the two-minute page window with room for
+  # a missed scrape.
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    # Set per deployment. It ends up on every alert, which is the difference between being
+    # woken for staging and being woken for production.
+    environment: local
+
+rule_files:
+  # Relative to this file, which is how Prometheus resolves it — and which means
+  # `promtool check config` can follow it in the repository as well as in the container,
+  # where both files are mounted into /etc/prometheus. An absolute container path would make
+  # this config unverifiable anywhere except inside a running container.
+  - alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: careos-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8000"]
+    # `CAREOS_METRICS_TOKEN` is empty in the local stack — the documented local default — so
+    # no credentials are sent here. A deployed environment sets the token and scrapes with:
+    #
+    #   authorization:
+    #     type: Bearer
+    #     credentials_file: /etc/prometheus/metrics_token
+    #
+    # A file rather than an inline `credentials:`, so the token is mounted as a secret instead
+    # of living in a config file that gets committed. Nothing resembling a real token is in
+    # this repository on purpose.
+
+  # Prometheus scraping itself, so that a rule evaluation failure or a full disk on the
+  # monitoring host is visible from the same place as everything else. Monitoring that cannot
+  # report its own health is the oldest way to be confidently wrong about an outage.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
