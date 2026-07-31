@@ -471,6 +471,51 @@ scrape while its pass is wedged.
 SIGTERM stops the loop between agencies rather than mid-delivery: the current job finishes and
 commits, then the process exits. Measured at ~2 seconds in the local stack.
 
+## Multi-factor authentication
+
+`08_Security_Architecture.md` Section 1 says *required* — not recommended — for owner/admin,
+clinical supervisor, and billing/RCM. `app_user.mfa_enrolled` existed from the first migration
+and nothing ever set it or read it, which made it a column describing an intention.
+
+**TOTP written against RFC 6238 rather than pulled in as a dependency.** It is HMAC, a counter,
+and a truncation rule; the real risk of writing it is producing codes no authenticator app
+accepts, and that risk is answered directly — the suite runs the published RFC vectors, so what
+is verified is interoperability with Google Authenticator and 1Password rather than agreement
+with itself. SHA-1 deliberately: the RFC permits SHA-256, and essentially no app implements it.
+
+**Codes are single-use.** The counter that last succeeded is stored, so a code cannot be
+presented twice inside its own thirty-second window. Without that, one glance over a shoulder is
+one sign-in and the second factor is a thirty-second password. It applies across enrolment and
+login alike, which is why confirming enrolment returns a session rather than telling the user to
+sign in again with a code they just spent.
+
+**Ten recovery codes, hashed, shown once.** They are the answer to a lost phone; without them
+the agency's only owner/admin locks the agency out of itself. Hashed with the password hasher
+because each is a credential that skips the second factor, and single-use because one that
+survives its own use is a permanent password on a piece of paper.
+
+**The secret is encrypted at rest** with the same field key as DOB and tax ID. A second factor
+kept in plaintext is one a database compromise hands over alongside the password hashes it was
+meant to backstop.
+
+**Enforcement is central and cannot be laundered.** A privileged user who has not enrolled gets
+a real session that reaches the enrolment endpoints and nothing else — refusing the login
+outright would make the requirement unsatisfiable, since enrolling requires an authenticated
+call made before enrolling. `/auth/refresh` re-derives the state from the user rather than
+carrying the presented token's claim forward, which is what stops a pending session being
+refreshed into a full one through an endpoint that never asks for a code.
+
+`CAREOS_MFA_REQUIRED` gates it, and production refuses to boot without it. It is off by default
+because switching it on turns every existing privileged session into an enrolment prompt —
+correct for a deployment, noise for a database seeded ten seconds ago. TOTP verification at
+login happens either way; the flag governs only whether an *unenrolled* privileged user is
+confined to enrolment.
+
+Caregivers are excluded from enrolling at all, and that is a guard rather than a policy: the
+caregiver app has no field to type a code into, so a caregiver who enrolled through the API
+would be locked out of the phone they clock in with — discovered at a client's door. Extending
+this to schedulers, which Section 1 asks for next, is one line in `MFA_ELIGIBLE_ROLES`.
+
 ## Ending sessions vs disabling an account
 
 Two operations on the Users screen that read alike and are not the same, and the difference was

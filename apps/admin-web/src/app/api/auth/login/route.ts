@@ -7,18 +7,30 @@
  */
 import { NextResponse } from "next/server";
 import { ApiError, api } from "@/lib/api";
-import { setSession } from "@/lib/session";
+import { decodeSessionClaims, setSession } from "@/lib/session";
 
 export async function POST(request: Request) {
   const form = await request.formData();
   const email = String(form.get("email") ?? "");
   const password = String(form.get("password") ?? "");
+  const mfaCode = String(form.get("mfa_code") ?? "").trim();
 
   try {
-    const tokens = await api.login(email, password);
+    const tokens = await api.login(email, password, mfaCode || undefined);
     await setSession(tokens.access_token, tokens.refresh_token);
-    return NextResponse.redirect(new URL("/dashboard", request.url), { status: 303 });
+    // A privileged user who has not enrolled holds a session that can reach the enrolment
+    // screen and nothing else, so send them there rather than to a dashboard that will
+    // refuse them and leave them guessing which of their permissions disappeared.
+    const claims = decodeSessionClaims(tokens.access_token);
+    const destination = claims?.mfaPending ? "/security?required=1" : "/dashboard";
+    return NextResponse.redirect(new URL(destination, request.url), { status: 303 });
   } catch (error) {
+    // A code is needed and was not given, or was wrong. Ask for it rather than reporting a
+    // failure: the password was correct, and telling someone their password is wrong when it
+    // is not is how they end up resetting it.
+    if (error instanceof ApiError && error.isMfaRequired) {
+      return NextResponse.redirect(new URL("/login?error=mfa", request.url), { status: 303 });
+    }
     // A code rather than a sentence, so the sign-in page renders it in the reader's language.
     // Putting English prose in the query string was how the one screen a Spanish-speaking
     // caregiver definitely sees ended up answering in English.

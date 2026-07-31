@@ -530,6 +530,10 @@ def _production_settings(**overrides):
         evv_use_sandbox=False,
         cors_allowed_origins=["https://app.careos.example"],
         metrics_token="set-in-the-secrets-manager",
+        # Every production requirement except the one under test is satisfied here, so a
+        # failure names the guard this file is about. `validate_settings` raises on the first
+        # unmet one, so an incomplete config would make these pass for the wrong reason.
+        mfa_required=True,
         **overrides,
     )
 

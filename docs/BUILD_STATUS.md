@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-31
-**Assessed by:** build increment 18 (background worker runner)
+**Assessed by:** build increment 19 (MFA enforcement)
 
 ---
 
@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 360 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
+| Tests | 388 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **Admin web app and caregiver app both built and working.** Caregiver app is an installable PWA, not React Native — see below |
 | Compliance review | **Not performed** |
@@ -493,6 +493,40 @@ Delivery is driven by `careos.workers.runner`, which is its own process and its 
 (see *Background workers* below). Before that existed, this whole section described code that
 ran only in tests.
 
+### Multi-factor authentication
+`08_Security_Architecture.md` Section 1 requires MFA for owner/admin, clinical supervisor, and
+billing/RCM. `app_user.mfa_enrolled` had existed since the foundation migration with nothing
+setting it or reading it — a column describing an intention.
+
+- **TOTP against RFC 6238**, written rather than depended on, and checked against the published
+  test vectors so what is verified is interoperability with real authenticator apps rather than
+  self-consistency. SHA-1 on purpose: the RFC permits SHA-256 and no app implements it.
+- **Single-use codes**, enforced by storing the last accepted counter. Applies across enrolment
+  and login, which is why confirming enrolment returns a session instead of asking the user to
+  sign in again with a code they have just spent.
+- **Ten recovery codes**, hashed with the password hasher and single-use. Without them a lost
+  phone locks the agency's only owner/admin out of the agency.
+- **The secret is encrypted at rest** with the same field key as DOB and tax ID.
+- **Enforcement is central**, in `requires()`, with exactly two `mfa_exempt` routes — the
+  enrolment pair, which an unenrolled user must be able to reach. `/auth/refresh` re-derives
+  the state from the user rather than trusting the presented token; without that a pending
+  session could be laundered into a full one through an endpoint that never asks for a code.
+  That bypass is pinned by its own test, and by mutation.
+- **Caregivers cannot enrol.** A guard, not a policy: the caregiver app has no field for a
+  code, so enrolling would lock them out of the phone they clock in with, discovered at a
+  client's door. Extending to schedulers — which Section 1 asks for next — is one line.
+- `CAREOS_MFA_REQUIRED` gates enforcement and **production refuses to boot without it**. Off by
+  default because turning it on makes every existing privileged session an enrolment prompt.
+- **Verified in a real browser** with enforcement on: sign in, land on the enrolment screen,
+  enrol from the secret shown, reach the rest of the app on the session confirming hands back,
+  then sign out and back in with a code — including the prompt that asks for one instead of
+  claiming the password was wrong.
+
+**No QR code.** The enrolment screen shows the secret and the `otpauth://` URI as text, which
+every authenticator accepts by manual entry and every password manager accepts by paste.
+Rendering a QR needs an encoder this app does not have; it is a real usability gap, not a
+solved one.
+
 ### Background workers
 `python -m careos.workers.runner`, its own container in the local stack. This closed the largest
 gap in the system: EVV transmission, webhook delivery, and the credential-expiry announcer were
@@ -537,7 +571,7 @@ These are honest placeholders, not oversights:
 
 | Area | State | What it needs |
 |---|---|---|
-| **Authentication** | Local Argon2 password hashing | `08_Security_Architecture.md` Section 1 calls for a managed OIDC provider. `app_user.auth_provider_id` is the seam; the password path is deleted when the IdP lands. MFA enrolment is tracked but not enforced |
+| **Authentication** | Local Argon2 password hashing, with TOTP MFA built and enforced | `08_Security_Architecture.md` Section 1 calls for a managed OIDC provider. `app_user.auth_provider_id` is the seam; the password path is deleted when the IdP lands, and MFA moves to the provider with it |
 | **EVV vendor field maps** | Structurally correct, contents provisional | Confirm against current vendor documentation during sandbox validation |
 | **EVV state assignments** | Seeded, marked `UNVERIFIED` | Confirm per state before operating there (`06_Compliance...` Section 1) |
 | **Service codes** | A handful of `T1019`-style rows | Populate per state and payer contract with a certified billing consultant |

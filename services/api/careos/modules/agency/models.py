@@ -6,9 +6,9 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -91,9 +91,21 @@ class AppUser(Base, PrimaryKeyMixin, TimestampMixin):
         SAEnum(UserStatus, name="user_status"), nullable=False, default=UserStatus.invited
     )
     #: MFA is required for owner_admin / clinical_supervisor / billing_rcm
-    #: (`08_Security_Architecture.md` Section 1). Enrolment state is tracked here so the
-    #: requirement is enforceable at login rather than assumed.
+    #: (`08_Security_Architecture.md` Section 1). True only once the user has *proved* a code,
+    #: never merely because a secret was issued — an enrolment that was started and abandoned
+    #: would otherwise lock the user out of an account they cannot produce codes for.
     mfa_enrolled: Mapped[bool] = mapped_column(nullable=False, default=False)
+    #: The TOTP secret, encrypted with the same field key as DOB and tax ID. A second factor
+    #: stored in plaintext is a second factor a database compromise hands over along with the
+    #: password hashes it was meant to backstop.
+    mfa_secret_encrypted: Mapped[bytes | None] = mapped_column(nullable=True)
+    #: The last TOTP counter this user successfully authenticated with. Stored so a code
+    #: cannot be used twice inside its own thirty-second window — otherwise a code read over
+    #: a shoulder or off a shared screen stays valid for as long as it is on display.
+    mfa_last_counter: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    #: Argon2 hashes of the single-use recovery codes, hashed for the same reason passwords
+    #: are: each one is a credential that bypasses the second factor.
+    mfa_recovery_hashes: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     #: Watermark for session revocation (`08_Security_Architecture.md` Section 6). Any access
     #: token whose `iat` is at or before this instant is refused, which cuts a terminated
     #: caregiver off from the API — and therefore from the cached PHI on their device, since
@@ -113,3 +125,11 @@ class AppUser(Base, PrimaryKeyMixin, TimestampMixin):
 MFA_REQUIRED_ROLES: frozenset[Role] = frozenset(
     {Role.owner_admin, Role.clinical_supervisor, Role.billing_rcm}
 )
+
+#: Roles that may enrol an authenticator at all.
+#:
+#: Everything except `caregiver`, and that exclusion is a guard rather than a policy. The
+#: caregiver app has no field to type a code into, so a caregiver who enrolled through the API
+#: would be unable to sign in on the phone they clock in with — discovered at a client's door,
+#: with no way to fix it themselves. Widening this is one line, once that app can ask.
+MFA_ELIGIBLE_ROLES: frozenset[Role] = frozenset(set(Role) - {Role.caregiver})

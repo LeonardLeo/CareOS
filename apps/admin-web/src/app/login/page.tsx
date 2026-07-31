@@ -33,9 +33,11 @@ export default async function LoginPage({
             title={t(
               error === "disabled"
                 ? "signInDisabled"
-                : error === "invalid"
-                  ? "signInFailed"
-                  : "signInUnavailable",
+                : error === "mfa"
+                  ? "signInCodePrompt"
+                  : error === "invalid"
+                    ? "signInFailed"
+                    : "signInUnavailable",
             )}
           />
         )}
@@ -72,6 +74,27 @@ export default async function LoginPage({
               required
             />
           </div>
+
+          {/* Rendered only once the API has said a code is needed. Showing it to everyone
+              would ask the majority of users — caregivers, schedulers — for something they do
+              not have, and an empty optional field on a sign-in screen invites a support call
+              from every one of them. The cost is one extra round trip for enrolled users. */}
+          {error === "mfa" && (
+            <div className="field">
+              <label className="field__label" htmlFor="mfa_code">
+                {t("signInCodeLabel")}
+              </label>
+              <input
+                className="field__input"
+                id="mfa_code"
+                name="mfa_code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                autoFocus
+                required
+              />
+            </div>
+          )}
 
           <button className="button" type="submit" style={{ width: "100%" }}>
             {t("signIn")}

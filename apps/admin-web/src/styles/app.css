@@ -1153,3 +1153,43 @@ button.timeline__visit {
   white-space: nowrap;
   border: 0;
 }
+
+/* --- Security / MFA enrolment ---------------------------------------------------------- */
+
+/* A secret and ten recovery codes get transcribed by hand into a phone or onto paper, so they
+   are set in a monospace face at a size that survives being read aloud. `user-select: all`
+   makes one click select the whole value: a partial selection of a shared secret produces an
+   authenticator that generates plausible codes which never match, and no error message
+   anywhere says why. */
+.mono-block {
+  font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+  font-size: var(--text-md);
+  letter-spacing: 0.04em;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  margin: 0 0 var(--space-3);
+  user-select: all;
+}
+
+.mono-block--wrap {
+  font-size: var(--text-sm);
+  letter-spacing: 0;
+  word-break: break-all;
+  user-select: all;
+}
+
+.codelist {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-4) 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: var(--space-2);
+}
+
+.codelist .mono-block {
+  margin: 0;
+  text-align: center;
+}

@@ -122,6 +122,24 @@ EXPECTED_ACCESS: dict[str, list[str]] = {
         "scheduler",
     ],
     "POST /v1/job-postings": ["owner_admin", "scheduler"],
+    # Three roles must enrol; every role with a client that can ask for a code may. That
+    # excludes `caregiver`: the caregiver app has no field for one, so enrolling would lock
+    # them out of the phone they clock in with. These are also the only two routes carrying
+    # `mfa_exempt`, being what an unenrolled privileged user must call to stop being one.
+    "POST /v1/auth/mfa/enroll": [
+        "auditor",
+        "billing_rcm",
+        "clinical_supervisor",
+        "owner_admin",
+        "scheduler",
+    ],
+    "POST /v1/auth/mfa/confirm": [
+        "auditor",
+        "billing_rcm",
+        "clinical_supervisor",
+        "owner_admin",
+        "scheduler",
+    ],
     "POST /v1/users/{user_id}/revoke-sessions": ["owner_admin"],
     "POST /v1/users/{user_id}/disable": ["owner_admin"],
     "POST /v1/users/{user_id}/enable": ["owner_admin"],

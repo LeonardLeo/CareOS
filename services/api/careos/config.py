@@ -55,6 +55,19 @@ class Settings(BaseSettings):
     #: anomalous. Never throttles — Section 9 forbids that — it only makes abuse visible.
     rate_limit_evv_anomaly_per_minute: int = 30
 
+    # --- Multi-factor authentication -----------------------------------------
+    #: Whether a user in an MFA-required role (`MFA_REQUIRED_ROLES`) is held to it.
+    #:
+    #: `08_Security_Architecture.md` Section 1 makes MFA mandatory for owner/admin, clinical
+    #: supervisor, and billing/RCM — so production must set this, and `validate_settings`
+    #: refuses to boot without it. It is off by default because switching it on turns every
+    #: existing privileged session into an enrolment prompt, which is correct for a deployment
+    #: and merely noise for a development database seeded ten seconds ago.
+    #:
+    #: TOTP verification at login happens either way. This flag governs only whether an
+    #: *unenrolled* privileged user is confined to the enrolment endpoints.
+    mfa_required: bool = False
+
     # --- Background worker (`careos.workers.runner`) --------------------------
     #: How often the runner wakes up. Each job has its own interval on top of this, so the
     #: poll is the resolution of the schedule rather than the schedule itself.
@@ -153,6 +166,16 @@ def validate_settings(settings: Settings) -> Settings:
         raise RuntimeError(
             "CAREOS_RATE_LIMIT_BACKEND must be 'redis' in production: in-process buckets "
             "multiply every published limit by the instance count"
+        )
+    if not settings.mfa_required:
+        # `08_Security_Architecture.md` Section 1 says "required", not "recommended", for
+        # owner/admin, clinical supervisor, and billing/RCM. Those are the roles that can read
+        # every client record in the tenant and export the lot, so a stolen password for one of
+        # them is a reportable breach. A boot gate rather than a default, for the same reason
+        # as the metrics token: a default that can be left unchanged is not a requirement.
+        raise RuntimeError(
+            "CAREOS_MFA_REQUIRED must be true in production: owner/admin, clinical "
+            "supervisor, and billing/RCM roles are required to use MFA"
         )
     if not settings.metrics_token:
         # An unauthenticated `/metrics` on a public listener hands out request rates, error

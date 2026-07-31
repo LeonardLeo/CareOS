@@ -61,6 +61,12 @@ class Principal:
     #: revoked session stops working immediately (`08_Security_Architecture.md` Section 6)
     #: rather than at the end of its 15-minute TTL.
     issued_at: datetime | None = None
+    #: Whether this session satisfies the MFA requirement for its role. False only for a user
+    #: in an MFA-required role who has not finished enrolling — such a session can reach the
+    #: enrolment endpoints and nothing else. Carried in the token rather than re-derived per
+    #: request because it is a property of how the session was established: a token minted
+    #: before enrolment must not silently become privileged when the user enrols elsewhere.
+    mfa_satisfied: bool = True
 
 
 def create_token(
@@ -70,6 +76,7 @@ def create_token(
     role: Role,
     token_type: TokenType,
     caregiver_id: uuid.UUID | None = None,
+    mfa_satisfied: bool = True,
 ) -> str:
     settings = get_settings()
     ttl = (
@@ -99,6 +106,12 @@ def create_token(
     }
     if caregiver_id is not None:
         claims["caregiver_id"] = str(caregiver_id)
+    if not mfa_satisfied:
+        # Present only when false, so an old token — which cannot carry the claim — is read as
+        # satisfied rather than as unenrolled. The alternative fails closed at first glance and
+        # in fact fails *shut*: every session issued before this change would be locked out of
+        # everything except enrolment, including sessions for roles MFA never applied to.
+        claims["mfa_pending"] = True
     return jwt.encode(claims, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
@@ -136,4 +149,5 @@ def decode_token(token: str, *, expected_type: TokenType = "access") -> Principa
         role=role,
         caregiver_id=uuid.UUID(caregiver_id) if caregiver_id else None,
         issued_at=datetime.fromtimestamp(claims["iat_us"] / 1_000_000, tz=UTC),
+        mfa_satisfied=not claims.get("mfa_pending", False),
     )

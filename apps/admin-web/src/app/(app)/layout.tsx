@@ -18,6 +18,10 @@ const NAV = [
   { href: "/credentialing", labelKey: "navCredentialing", area: "credentialing" },
   { href: "/compliance", labelKey: "navCompliance", area: "compliance" },
   { href: "/users", labelKey: "navUsers", area: "users" },
+  // Reachable by every role, unlike the rest of this list: MFA is required for three roles
+  // and available to all of them, and a user held on the enrolment screen must be able to
+  // navigate to it.
+  { href: "/security", labelKey: "navSecurity", area: "security" },
 ] as const satisfies readonly { href: string; labelKey: StringKey; area: string }[];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {

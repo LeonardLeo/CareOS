@@ -60,6 +60,30 @@ class PermissionDeniedError(CareOSError):
     code = "PERMISSION_DENIED"
 
 
+class MFAEnrolmentRequiredError(CareOSError):
+    """The caller's role requires MFA and they have not finished enrolling.
+
+    403 rather than 401: the credentials were accepted and the session is real. What is
+    missing is a step the user can take themselves, and a client that treated this as an
+    authentication failure would send them back to a login screen that would let them in
+    again and land here once more.
+    """
+
+    status_code = 403
+    code = "MFA_ENROLMENT_REQUIRED"
+
+
+class MFARequiredError(AuthenticationError):
+    """Correct password, and the account has MFA — the code is missing or wrong.
+
+    Reached only after the password verifies, so it discloses nothing to someone guessing.
+    Separate from `AUTHENTICATION_REQUIRED` so a sign-in screen can ask for the code instead
+    of telling the user their password was wrong, which it was not.
+    """
+
+    code = "MFA_REQUIRED"
+
+
 class NotFoundError(CareOSError):
     status_code = 404
     code = "NOT_FOUND"

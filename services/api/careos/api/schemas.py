@@ -29,6 +29,11 @@ class ORMModel(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+    #: TOTP code, or one of the recovery codes issued at enrolment. Optional in the schema and
+    #: required by the server only for accounts that have enrolled — a client cannot know which
+    #: those are before trying, and asking every user for a code they do not have would be
+    #: worse than a second round trip for the ones who do.
+    mfa_code: str | None = Field(default=None, max_length=32)
 
 
 class TokenPair(BaseModel):
@@ -123,6 +128,23 @@ class RevokeSessions(BaseModel):
     """
 
     reason: str = Field(min_length=3, max_length=500)
+
+
+class MFAEnrolmentStarted(BaseModel):
+    """Everything needed to pair an authenticator, returned exactly once.
+
+    The secret and the recovery codes appear in this response and in no other, for the same
+    reason a webhook signing secret does: a value any endpoint will hand back again leaks
+    through every cached copy of that endpoint. Losing them means enrolling again.
+    """
+
+    secret: str
+    otpauth_uri: str
+    recovery_codes: list[str]
+
+
+class MFAConfirm(BaseModel):
+    code: str = Field(min_length=6, max_length=10)
 
 
 class DisableUser(BaseModel):

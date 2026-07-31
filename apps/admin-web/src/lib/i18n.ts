@@ -398,6 +398,35 @@ const EN = {
     endSessions: "End all sessions",
     endSessionsPrompt: "Why are you ending this user's sessions?",
     endingSessions: "Ending sessions…",
+    // --- Security and MFA
+    navSecurity: "Security",
+    securityTitle: "Security",
+    securitySubtitle:
+      "Multi-factor authentication for this account. Owner/Admin, Clinical Supervisor and Billing/RCM are required to use it.",
+    mfaRequiredBadge: "Required",
+    mfaRequiredNote:
+      "Your role requires multi-factor authentication. Set it up here to use the rest of CareOS.",
+    mfaEnrolledBadge: "Enrolled",
+    mfaEnrolledNote: "Multi-factor authentication is on for this account.",
+    authenticatorApp: "Authenticator app",
+    authenticatorAppSubtitle: "Any TOTP app — Google Authenticator, 1Password, Authy",
+    mfaStartExplainer:
+      "You will get a secret to add to your authenticator app, and ten recovery codes to keep somewhere safe.",
+    mfaStart: "Set up authenticator",
+    mfaScanExplainer:
+      "Add this secret to your authenticator app, then enter the six-digit code it shows.",
+    mfaSecretLabel: "Secret",
+    mfaUriLabel: "Setup link (for password managers)",
+    mfaCodeLabel: "Six-digit code",
+    mfaConfirm: "Confirm and finish",
+    recoveryCodes: "Recovery codes",
+    recoveryCodesSubtitle: "For signing in when you do not have your phone",
+    recoveryCodesPending: "Recovery codes appear when you start setting up an authenticator.",
+    recoveryCodesWarning:
+      "Save these now. Each one works once, and they are not shown again. Without them, a lost phone means an administrator has to reset your account.",
+    shownOnce: "Shown once",
+    signInCodeLabel: "Six-digit code",
+    signInCodePrompt: "Enter the code from your authenticator app.",
     disableAccount: "Disable account",
     enableAccount: "Enable account",
     accountDisabled: "Account disabled",
@@ -809,6 +838,35 @@ const ES: Record<StringKey, string> = {
     endSessions: "Cerrar todas las sesiones",
     endSessionsPrompt: "¿Por qué está cerrando las sesiones de este usuario?",
     endingSessions: "Cerrando sesiones…",
+    navSecurity: "Seguridad",
+    securityTitle: "Seguridad",
+    securitySubtitle:
+      "Autenticación de múltiples factores para esta cuenta. Es obligatoria para propietario/administrador, supervisor clínico y facturación.",
+    mfaRequiredBadge: "Obligatoria",
+    mfaRequiredNote:
+      "Su función requiere autenticación de múltiples factores. Configúrela aquí para usar el resto de CareOS.",
+    mfaEnrolledBadge: "Configurada",
+    mfaEnrolledNote: "La autenticación de múltiples factores está activa en esta cuenta.",
+    authenticatorApp: "Aplicación de autenticación",
+    authenticatorAppSubtitle: "Cualquier aplicación TOTP — Google Authenticator, 1Password, Authy",
+    mfaStartExplainer:
+      "Recibirá una clave para agregar a su aplicación de autenticación y diez códigos de recuperación para guardar en un lugar seguro.",
+    mfaStart: "Configurar autenticación",
+    mfaScanExplainer:
+      "Agregue esta clave a su aplicación de autenticación y luego escriba el código de seis dígitos que muestra.",
+    mfaSecretLabel: "Clave",
+    mfaUriLabel: "Enlace de configuración (para gestores de contraseñas)",
+    mfaCodeLabel: "Código de seis dígitos",
+    mfaConfirm: "Confirmar y finalizar",
+    recoveryCodes: "Códigos de recuperación",
+    recoveryCodesSubtitle: "Para iniciar sesión cuando no tenga su teléfono",
+    recoveryCodesPending:
+      "Los códigos de recuperación aparecen cuando comienza a configurar la aplicación de autenticación.",
+    recoveryCodesWarning:
+      "Guárdelos ahora. Cada uno funciona una sola vez y no se vuelven a mostrar. Sin ellos, perder el teléfono significa que un administrador tendrá que restablecer su cuenta.",
+    shownOnce: "Se muestra una sola vez",
+    signInCodeLabel: "Código de seis dígitos",
+    signInCodePrompt: "Escriba el código de su aplicación de autenticación.",
     disableAccount: "Desactivar cuenta",
     enableAccount: "Activar cuenta",
     accountDisabled: "Cuenta desactivada",

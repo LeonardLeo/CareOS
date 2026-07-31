@@ -21,7 +21,12 @@ from typing import Any
 from fastapi import Depends, FastAPI, Request
 from fastapi.routing import APIRoute
 
-from careos.core.errors import AuthenticationError, PermissionDeniedError
+from careos.config import get_settings
+from careos.core.errors import (
+    AuthenticationError,
+    MFAEnrolmentRequiredError,
+    PermissionDeniedError,
+)
 from careos.core.security import Principal
 from careos.modules.agency.models import Role
 
@@ -44,13 +49,18 @@ def get_principal(request: Request) -> Principal:
     return principal
 
 
-def requires(*roles: Role) -> Callable[..., Principal]:
+def requires(*roles: Role, mfa_exempt: bool = False) -> Callable[..., Principal]:
     """Declare the roles permitted to call a route.
 
     Usage::
 
         @router.post("/clients", dependencies=[Depends(requires(Role.owner_admin,
                                                                 Role.scheduler))])
+
+    `mfa_exempt` is for the enrolment endpoints themselves, and for nothing else. A user in an
+    MFA-required role who has not enrolled holds a session that can reach those routes and no
+    others — without the exemption the requirement would be unsatisfiable, since the only way
+    to enrol is to call an endpoint while not yet enrolled.
     """
     if not roles:
         raise ValueError("requires() needs at least one role; use public() for open routes")
@@ -58,6 +68,15 @@ def requires(*roles: Role) -> Callable[..., Principal]:
 
     def _dependency(request: Request) -> Principal:
         principal = get_principal(request)
+        if not mfa_exempt and not principal.mfa_satisfied and get_settings().mfa_required:
+            # Centrally, like every other access rule here. A per-endpoint check would be
+            # forgotten on exactly the endpoint that mattered — which is the argument
+            # `08_Security_Architecture.md` Section 1 makes for shared enforcement.
+            raise MFAEnrolmentRequiredError(
+                "Your role requires multi-factor authentication. Finish enrolling before "
+                "using CareOS.",
+                details={"role": principal.role.value},
+            )
         if principal.role not in allowed:
             raise PermissionDeniedError(
                 "Your role is not permitted to perform this action",

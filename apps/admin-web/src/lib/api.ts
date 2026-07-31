@@ -43,6 +43,16 @@ export class ApiError extends Error {
   get isAccountInactive(): boolean {
     return this.code === "ACCOUNT_INACTIVE";
   }
+
+  /** Right password, and the account has a second factor the request did not carry. */
+  get isMfaRequired(): boolean {
+    return this.code === "MFA_REQUIRED";
+  }
+
+  /** The role requires MFA and this user has not finished enrolling. */
+  get isMfaEnrolmentRequired(): boolean {
+    return this.code === "MFA_ENROLMENT_REQUIRED";
+  }
 }
 
 interface RequestOptions {
@@ -96,6 +106,13 @@ export interface TokenPair {
   refresh_token: string;
   token_type: string;
   expires_in: number;
+}
+
+export interface MfaEnrolmentStarted {
+  secret: string;
+  otpauth_uri: string;
+  /** Shown once, at enrolment. Not retrievable afterwards from any endpoint. */
+  recovery_codes: string[];
 }
 
 export interface Agency {
@@ -258,10 +275,18 @@ export interface ReviewStatus {
 /* --- Endpoint wrappers --------------------------------------------------------------- */
 
 export const api = {
-  login: (email: string, password: string) =>
+  startMfaEnrolment: (token: string) =>
+    apiFetch<MfaEnrolmentStarted>("/v1/auth/mfa/enroll", { token, method: "POST" }),
+
+  confirmMfaEnrolment: (token: string, code: string) =>
+    apiFetch<TokenPair>("/v1/auth/mfa/confirm", { token, method: "POST", body: { code } }),
+
+  login: (email: string, password: string, mfaCode?: string) =>
     apiFetch<TokenPair>("/v1/auth/login", {
       method: "POST",
-      body: { email, password },
+      // Omitted rather than sent empty: the API distinguishes "no code supplied" from "wrong
+      // code", and an empty string would turn the first into the second.
+      body: mfaCode ? { email, password, mfa_code: mfaCode } : { email, password },
     }),
 
   agency: (token: string, agencyId: string) =>

@@ -12,17 +12,26 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from careos.core import mfa
 from careos.core.audit import AuditAction, record_audit
-from careos.core.crypto import encrypt_field
+from careos.core.crypto import decrypt_field, encrypt_field
 from careos.core.errors import (
     AccountInactiveError,
     AuthenticationError,
     ConflictError,
+    MFARequiredError,
     PermissionDeniedError,
+    ValidationError,
 )
 from careos.core.security import Principal, create_token, hash_password, verify_password
 from careos.db.session import tenant_session
-from careos.modules.agency.models import Agency, AppUser, Role, UserStatus
+from careos.modules.agency.models import (
+    MFA_REQUIRED_ROLES,
+    Agency,
+    AppUser,
+    Role,
+    UserStatus,
+)
 from careos.modules.credentialing.models import Caregiver
 
 
@@ -167,12 +176,22 @@ async def record_failed_login(session: AsyncSession, *, email: str) -> None:
 
 
 def issue_tokens(user: AppUser, caregiver_id: uuid.UUID | None) -> tuple[str, str]:
+    """Mint a fresh pair for a user whose identity is already established (the refresh path).
+
+    The MFA state is re-derived from the user rather than carried over from the presented
+    token. Both directions matter: without this, a pending session could be refreshed into a
+    satisfied one — laundering an unenrolled privileged user into full access through an
+    endpoint that never asks for a code — and a user who enrolled on another device would stay
+    locked to the enrolment endpoints until their refresh token expired.
+    """
+    mfa_satisfied = user.mfa_enrolled or user.role not in MFA_REQUIRED_ROLES
     access = create_token(
         user_id=user.id,
         agency_id=user.agency_id,
         role=user.role,
         token_type="access",
         caregiver_id=caregiver_id,
+        mfa_satisfied=mfa_satisfied,
     )
     refresh = create_token(
         user_id=user.id,
@@ -180,6 +199,7 @@ def issue_tokens(user: AppUser, caregiver_id: uuid.UUID | None) -> tuple[str, st
         role=user.role,
         token_type="refresh",
         caregiver_id=caregiver_id,
+        mfa_satisfied=mfa_satisfied,
     )
     return access, refresh
 
@@ -377,3 +397,123 @@ async def enable_user(
         after_state={"status": user.status.value},
     )
     return user
+
+
+async def begin_mfa_enrolment(
+    session: AsyncSession, *, principal: Principal, user: AppUser
+) -> tuple[str, str, list[str]]:
+    """Issue a TOTP secret and recovery codes. Returns (secret, otpauth URI, recovery codes).
+
+    **`mfa_enrolled` is deliberately not set here.** Enrolment is not finished until the user
+    has produced a code from the secret, and marking them enrolled on issue would lock out
+    anyone who closed the tab before scanning — with no way back in, since the requirement they
+    would then fail is the one that gates every endpoint.
+
+    Re-enrolling replaces the secret and the recovery codes. That is the recovery path for a
+    lost phone when the codes are gone too: an administrator disables MFA for the user, who
+    then enrols afresh. It also means a stale secret cannot linger next to a live one.
+    """
+    secret = mfa.generate_secret()
+    recovery_codes = mfa.generate_recovery_codes()
+
+    user.mfa_secret_encrypted = encrypt_field(secret)
+    # Hashed with the password hasher, because each of these is a credential that skips the
+    # second factor entirely. Normalized first so the stored hash matches what a person types.
+    user.mfa_recovery_hashes = [
+        hash_password(mfa.normalize_recovery_code(code)) for code in recovery_codes
+    ]
+    user.mfa_last_counter = None
+    user.mfa_enrolled = False
+    await session.flush()
+
+    await record_audit(
+        session,
+        principal=principal,
+        agency_id=principal.agency_id,
+        action=AuditAction.mfa_enrolment_started,
+        entity_type="app_user",
+        entity_id=user.id,
+        # No secret, no codes. An audit log is read by more people than this response is.
+        after_state={"recovery_codes_issued": len(recovery_codes)},
+    )
+    return secret, mfa.provisioning_uri(secret, account=user.email), recovery_codes
+
+
+async def confirm_mfa_enrolment(
+    session: AsyncSession, *, principal: Principal, user: AppUser, code: str
+) -> AppUser:
+    """Finish enrolment by proving the user can produce a code."""
+    secret = decrypt_field(user.mfa_secret_encrypted)
+    if secret is None:
+        raise ValidationError(
+            "Start enrolment before confirming it.", details={"user_id": str(user.id)}
+        )
+
+    counter = mfa.verify_code(secret, code, last_counter=user.mfa_last_counter)
+    if counter is None:
+        raise MFARequiredError("That code is not valid. Check your authenticator app's clock.")
+
+    user.mfa_enrolled = True
+    user.mfa_last_counter = counter
+    await session.flush()
+
+    await record_audit(
+        session,
+        principal=principal,
+        agency_id=principal.agency_id,
+        action=AuditAction.mfa_enrolled,
+        entity_type="app_user",
+        entity_id=user.id,
+        after_state={"mfa_enrolled": True},
+    )
+    return user
+
+
+def _consume_recovery_code(user: AppUser, code: str) -> bool:
+    """Spend one recovery code, or return False.
+
+    Single-use is the whole point: a code that still works after being used is a permanent
+    second password written on a piece of paper. Verified against every stored hash rather
+    than a lookup, because they are hashed — which is why they cost a linear scan of ten.
+    """
+    supplied = mfa.normalize_recovery_code(code)
+    remaining = list(user.mfa_recovery_hashes or [])
+    for stored in remaining:
+        if verify_password(supplied, stored):
+            remaining.remove(stored)
+            # Reassigned rather than mutated in place: SQLAlchemy does not track mutation of a
+            # plain JSONB list, so `remaining.remove(...)` alone would leave the code usable
+            # forever and nothing would look wrong.
+            user.mfa_recovery_hashes = remaining
+            return True
+    return False
+
+
+def assert_mfa_satisfied(user: AppUser, *, code: str | None) -> None:
+    """Check the second factor at login, or raise.
+
+    Called after the password verifies, so every branch here is reachable only by someone who
+    already holds valid credentials — which is what makes saying "the code is wrong" safe.
+    """
+    if not user.mfa_enrolled:
+        return
+
+    secret = decrypt_field(user.mfa_secret_encrypted)
+    if secret is None:
+        # Enrolled with no secret should be impossible. Failing closed rather than waving it
+        # through: the alternative is that a corrupted row silently downgrades an account to
+        # single-factor.
+        raise MFARequiredError("Multi-factor authentication is not usable on this account.")
+
+    if not code:
+        raise MFARequiredError("Enter the code from your authenticator app.")
+
+    counter = mfa.verify_code(secret, code, last_counter=user.mfa_last_counter)
+    if counter is not None:
+        user.mfa_last_counter = counter
+        return
+
+    if _consume_recovery_code(user, code):
+        return
+
+    raise MFARequiredError("That code is not valid.")

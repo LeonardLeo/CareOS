@@ -23,6 +23,14 @@ export interface SessionClaims {
   agencyId: string;
   role: string;
   expiresAt: number;
+  /**
+   * True when this session has not satisfied the MFA requirement for its role.
+   *
+   * Read here only to send the user to the enrolment screen instead of a page that will
+   * refuse them. The API sets the claim and enforces it; this is the same "hide the link"
+   * nicety as `role`, and equally not a boundary.
+   */
+  mfaPending: boolean;
 }
 
 export interface Session extends SessionClaims {
@@ -41,6 +49,7 @@ function decodeClaims(token: string): SessionClaims | null {
       agency_id?: string;
       role?: string;
       exp?: number;
+      mfa_pending?: boolean;
     };
     if (!payload.sub || !payload.agency_id || !payload.role || !payload.exp) return null;
     return {
@@ -48,10 +57,18 @@ function decodeClaims(token: string): SessionClaims | null {
       agencyId: payload.agency_id,
       role: payload.role,
       expiresAt: payload.exp,
+      // Absent means satisfied: the API only emits the claim when it is pending, so a token
+      // minted before MFA existed reads as fine rather than as locked out of everything.
+      mfaPending: payload.mfa_pending === true,
     };
   } catch {
     return null;
   }
+}
+
+/** Read the claims out of a token that is not in a cookie yet. See `decodeClaims`. */
+export function decodeSessionClaims(token: string): SessionClaims | null {
+  return decodeClaims(token);
 }
 
 export async function setSession(accessToken: string, refreshToken: string): Promise<void> {
@@ -102,6 +119,16 @@ export const NAV_ACCESS: Record<string, readonly string[]> = {
   // but the screen only offers the invite and revoke controls to an owner_admin, matching the
   // API, which refuses them to everyone else regardless of what the UI renders.
   users: ["owner_admin", "auditor"],
+  // Every role: MFA is required for three of them and available to all, and a user held on
+  // the enrolment screen has to be able to reach it from the nav.
+  security: [
+    "owner_admin",
+    "scheduler",
+    "clinical_supervisor",
+    "caregiver",
+    "billing_rcm",
+    "auditor",
+  ],
 };
 
 export function canSee(area: keyof typeof NAV_ACCESS, role: string): boolean {
