@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-30
-**Assessed by:** build increment 11 (transaction boundary)
+**Assessed by:** build increment 12 (metrics)
 
 ---
 
@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 277 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
+| Tests | 287 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **Admin web app and caregiver app both built and working.** Caregiver app is an installable PWA, not React Native — see below |
 | Compliance review | **Not performed** |
@@ -81,6 +81,32 @@ ranking, ambient extraction, and claim scrubbing are all core to the roadmap.
   - A reason is required and audited. "We removed their access when they left" is a claim, and
     a reason attached to a timestamp and an actor is what evidences it.
 - **Error envelope.** Single shape for every failure, including FastAPI validation errors.
+- **Metrics** (`GET /metrics`, Prometheus exposition). Built because this system is full of
+  things that degrade rather than break, and degradation left no outward trace:
+  - **`careos_rate_limit_degraded`** is the one that justified the increment. A limiter that
+    has lost Redis keeps answering every request while the cluster enforces N x the published
+    ceiling; nothing in a response says so.
+  - **`careos_evv_anomalous_volume_total`.** Section 9 asks for abuse detection *in place of*
+    throttling on clock-in, so nothing is ever refused and the counter is the entire response.
+    A counter nobody collects is not detection.
+  - **`careos_evv_escalations_total`** — records that exhausted their retries and now need a
+    person. Counted apart from rejections because the two need different humans: a rejection
+    is a data problem for the agency, an escalation is an unattended compliance liability.
+  - **`careos_request_commit_failures_total`**, **`careos_sessions_rejected_total{reason}`**
+    (revoked sessions separated from ordinary bad tokens), and request counts and durations by
+    route template and status.
+  - **No label carries a tenant or a person.** Metrics outlive logs, are exported to systems
+    with looser access control than the database, and land on dashboards many people can see.
+    A test walks every registered collector and fails on a forbidden label, so a metric added
+    later cannot quietly reintroduce one. Route *templates* rather than paths, for the same
+    reason and because the concrete path is one time series per visit.
+  - Gated by `CAREOS_METRICS_TOKEN` as a bearer token, compared in constant time; production
+    refuses to boot without one. The route is `public()` in the RBAC sense because a collector
+    has no agency and fits no role — inventing one would put a login in the monitoring path.
+    That required the request middleware to skip JWT decoding for this path, since `authenticate`
+    would otherwise reject a collector's non-JWT token before the endpoint could check it.
+  - Verified against a live server rather than only in tests: the gauge read 0 with Redis up,
+    1 after killing it mid-traffic, and 0 again once it returned.
 - **Rate limiting** (`05_API_Specification.md` Section 9). Token buckets, three tiers, and the
   exemption is the point of the design rather than a footnote:
   - **Clock-in and clock-out are never throttled**, as Section 9 requires. An EVV record that
@@ -358,8 +384,10 @@ These are honest placeholders, not oversights:
 - **Data export tooling** — required by the PRD's portability NFR and by
   `06_Compliance...` Section 8, and explicitly meant to be first-class rather than an
   afterthought.
-- **Observability** — structured logging exists; no APM, tracing, or alerting on the
-  EVV/scheduling critical paths, which the 99.9% NFR requires.
+- **Tracing and alerting** — structured logs and Prometheus metrics exist (see below), but
+  nothing scrapes them here, there are no alert rules, and there is no distributed tracing on
+  the EVV/scheduling critical paths. The 99.9% NFR needs someone woken up, and metrics only
+  make that possible rather than doing it.
 - **Infrastructure-as-code** — no Terraform, no deployed environment.
 - **Localization** — English only. The PRD requires English + Spanish at MVP.
 
@@ -465,10 +493,11 @@ a test rather than done by hand.
    against a real API, which is a much stronger position than unexecuted code but is not the
    same as iOS Safari, a real GPS chip, and a genuinely bad connection. Decide native
    packaging at the same time, since iOS push and background sync depend on it.
-2. **Observability.** There is now a component whose failure is invisible from the outside: a
-   degraded rate limiter still answers every request, just with the wrong ceiling. It logs, but
-   nothing collects the logs, and the same is true of the EVV anomaly counter and the bias
-   audit. Structured logging exists; metrics, traces, and somewhere to send them do not.
+2. **Somewhere to send the metrics, and alert rules.** The series now exist and are honest;
+   nothing scrapes them, nobody is paged, and there is still no distributed tracing. The
+   99.9% NFR needs someone woken up — metrics make that possible rather than doing it. The
+   first alerts worth writing are already obvious: `careos_rate_limit_degraded` above zero,
+   any `careos_evv_escalations_total` increase, and a non-zero commit-failure rate.
 3. **First real EVV integration** for one state, end to end through that vendor's sandbox.
    This is the assumption most likely to be wrong, and the cheapest time to find out is now.
 4. **Engage compliance counsel**, and run the bias audit on real outcomes before the ranking

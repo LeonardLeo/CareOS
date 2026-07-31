@@ -22,6 +22,8 @@ dependencies = [
     # for `aclose()`; the token bucket runs as a Lua script, so `register_script` doing
     # EVALSHA-with-NOSCRIPT-retry is load bearing rather than convenience.
     "redis>=5.2",
+    # Metrics exposition only — no client, no push, no outbound dependency in a request path.
+    "prometheus-client>=0.21",
 ]
 
 [project.optional-dependencies]

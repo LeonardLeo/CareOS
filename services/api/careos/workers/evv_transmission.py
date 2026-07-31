@@ -25,6 +25,7 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from careos.core import metrics
 from careos.core.errors import CareOSError
 from careos.db.session import tenant_session
 from careos.modules.scheduling import service as scheduling
@@ -182,6 +183,7 @@ async def run_once(agency_id: uuid.UUID, *, limit: int = 50) -> TransmissionRun:
                 # rather than spinning.
                 record.transmission_attempts += 1
                 record.last_transmission_at = datetime.now(UTC)
+                metrics.evv_transmissions_total.labels(outcome="configuration_error").inc()
                 logger.warning(
                     "evv.transmission_configuration_error",
                     evv_record_id=str(record.id),
@@ -192,12 +194,20 @@ async def run_once(agency_id: uuid.UUID, *, limit: int = 50) -> TransmissionRun:
 
             if record.transmission_status is TransmissionStatus.acknowledged:
                 run.acknowledged += 1
+                metrics.evv_transmissions_total.labels(outcome="acknowledged").inc()
             elif record.transmission_status is TransmissionStatus.rejected:
                 run.rejected += 1
+                metrics.evv_transmissions_total.labels(outcome="rejected").inc()
             else:
                 run.still_pending += 1
+                metrics.evv_transmissions_total.labels(outcome="pending").inc()
 
         run.escalated = await _escalate_exhausted(session, agency_id)
+        # Escalation means a record has exhausted its retries and now needs a person. Counted
+        # separately from a rejection because the two need different humans: a rejection is a
+        # data problem for the agency, an escalation is an unattended compliance liability.
+        if run.escalated:
+            metrics.evv_escalations_total.inc(run.escalated)
 
     logger.info(
         "evv.transmission_run",

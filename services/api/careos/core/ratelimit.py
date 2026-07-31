@@ -50,6 +50,8 @@ import structlog
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
+from careos.core import metrics
+
 logger = structlog.get_logger(__name__)
 
 
@@ -381,10 +383,15 @@ class RedisRateLimitStore:
             )
             self._warned_at = now
         self._degraded = True
+        # The gauge is the point of the exercise: a degraded limiter still answers every
+        # request, so this flag is the only outward sign that the cluster-wide ceiling is not
+        # being enforced.
+        metrics.rate_limit_degraded.set(1)
 
     def _recover(self) -> None:
         if self._degraded:
             logger.info("ratelimit.redis_recovered")
+            metrics.rate_limit_degraded.set(0)
             self._degraded = False
             self._degraded_until = 0.0
             # Buckets filled during the outage are stale and would keep refusing callers who
@@ -499,6 +506,7 @@ class RateLimiter:
             f"evv:volume:{subject}", limit=self.policy.evv_anomaly_per_minute, window_seconds=60
         )
         if not decision.allowed:
+            metrics.evv_anomalous_volume_total.inc()
             logger.warning(
                 "evv.anomalous_volume",
                 agency_id=agency_id,

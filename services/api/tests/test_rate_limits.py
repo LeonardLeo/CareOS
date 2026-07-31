@@ -529,6 +529,7 @@ def _production_settings(**overrides):
         jwt_secret="a-real-production-secret-value",
         evv_use_sandbox=False,
         cors_allowed_origins=["https://app.careos.example"],
+        metrics_token="set-in-the-secrets-manager",
         **overrides,
     )
 

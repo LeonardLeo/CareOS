@@ -242,6 +242,36 @@ ceiling on login at the worst possible moment. Degraded means the limits still a
 instance. It is logged at `error` with the consequence spelled out, and a short circuit breaker
 keeps a dead Redis from costing a connect timeout on every request.
 
+## Metrics
+
+Prometheus exposition at `GET /metrics`, scraped by a collector rather than pushed anywhere, so
+nothing outbound sits in a request path.
+
+It exists because several things here **degrade rather than break**, which is deliberate — a
+system that keeps serving caregivers beats one that stops — but it means the only evidence was a
+log line nothing collected:
+
+| Signal | Why it is invisible otherwise |
+|---|---|
+| `careos_rate_limit_degraded` | A limiter that has lost Redis answers every request; the cluster just enforces N× the published ceiling |
+| `careos_evv_anomalous_volume_total` | Section 9 asks for detection instead of throttling on clock-in. Nothing is ever refused, so the counter *is* the response |
+| `careos_evv_escalations_total` | A record that exhausted its retries now needs a person, and nobody is told |
+| `careos_request_commit_failures_total` | How often the database will not accept a write |
+| `careos_sessions_rejected_total{reason}` | Revoked-session refusals separated from ordinary bad tokens — a spike in the first means an offboarding just happened |
+| `careos_http_requests_total`, `careos_http_request_duration_seconds` | By route template and status |
+
+**No label carries a tenant or a person.** No `agency_id`, no `caregiver_id`, no client name.
+Metrics outlive logs, are exported to systems with looser access control than the database, and
+land on dashboards a lot of people can see. Route *templates* are used rather than paths for the
+same reason, and because `/v1/visits/{visit_id}` is one time series where the concrete path is
+one per visit. A test walks every registered collector and fails on a forbidden label, so a
+metric added later cannot quietly reintroduce it.
+
+Scraping is gated by `CAREOS_METRICS_TOKEN` as a bearer token, compared in constant time.
+Production refuses to boot without one; local development may leave it empty. The endpoint is
+`public()` in the RBAC sense because a collector has no agency and fits no role in this model —
+inventing one would put a login in the monitoring path.
+
 ## Non-negotiable constraints
 
 From `docs/01_Product_Vision_and_Executive_Summary.md` Section 7 and

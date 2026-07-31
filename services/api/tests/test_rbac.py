@@ -23,6 +23,10 @@ from tests.conftest import TenantFixture
 #: file pass by finding nothing.
 EXPECTED_ACCESS: dict[str, list[str]] = {
     "GET /health": ["*public*"],
+    # Public in the RBAC sense only: a scraper has no agency and fits no role in this model,
+    # so inventing one would put a login in the monitoring path. It is gated by a bearer token
+    # from configuration instead, which production cannot boot without.
+    "GET /metrics": ["*public*"],
     "GET /v1/agencies/{agency_id}": [
         "auditor",
         "billing_rcm",

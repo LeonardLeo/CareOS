@@ -55,6 +55,15 @@ class Settings(BaseSettings):
     #: anomalous. Never throttles — Section 9 forbids that — it only makes abuse visible.
     rate_limit_evv_anomaly_per_minute: int = 30
 
+    # --- Observability --------------------------------------------------------
+    #: Bearer token a collector must present to scrape `/metrics`. Empty leaves the endpoint
+    #: open, which is fine behind a private network and is the local default.
+    #:
+    #: Production must set it — see `validate_settings`. The series are deliberately free of
+    #: tenant and person labels, but they still describe traffic shape, error rates, and when
+    #: the system is degraded, which is reconnaissance worth denying.
+    metrics_token: str = ""
+
     # --- Browser clients ------------------------------------------------------
     #: Origins allowed to call this API from a browser. The caregiver app needs this and the
     #: admin app does not: the admin app calls from its own server, while the caregiver PWA
@@ -125,6 +134,14 @@ def validate_settings(settings: Settings) -> Settings:
         raise RuntimeError(
             "CAREOS_RATE_LIMIT_BACKEND must be 'redis' in production: in-process buckets "
             "multiply every published limit by the instance count"
+        )
+    if not settings.metrics_token:
+        # An unauthenticated `/metrics` on a public listener hands out request rates, error
+        # rates, and a flag saying when rate limiting is degraded. A boot gate rather than a
+        # default token, because a default would be the same as no token everywhere it was
+        # not changed.
+        raise RuntimeError(
+            "CAREOS_METRICS_TOKEN must be set in production, or /metrics is readable by anyone"
         )
     return settings
 

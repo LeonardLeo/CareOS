@@ -7,12 +7,14 @@ first extraction candidate and is already isolated behind `careos.integrations`.
 
 from __future__ import annotations
 
+import secrets
+import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import APIRouter, Depends, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -21,8 +23,10 @@ from starlette.middleware.cors import CORSMiddleware
 from careos.api.deps import authenticate, enforce_session_revocation
 from careos.api.v1 import agencies, auth, caregivers, clients, recruiting, visits
 from careos.config import get_settings
+from careos.core import metrics
 from careos.core.context import request_id_var, source_ip_var
 from careos.core.errors import (
+    AuthenticationError,
     CareOSError,
     CommitFailedError,
     RateLimitExceededError,
@@ -43,6 +47,11 @@ from careos.db.session import dispose_engines
 logger = structlog.get_logger(__name__)
 
 API_PREFIX = "/v1"
+
+#: The scrape endpoint. Named here because the request middleware has to know not to try to
+#: decode its bearer token as a CareOS JWT — a collector's token is not a user session, and
+#: `authenticate` would reject the scrape before it reached the endpoint that can check it.
+METRICS_PATH = "/metrics"
 
 
 @asynccontextmanager
@@ -100,19 +109,36 @@ def create_app() -> FastAPI:
             request.client.host if request.client else None
         )
         source_ip_token = source_ip_var.set(source_ip)
+        started = time.perf_counter()
         try:
             try:
-                principal = await authenticate(request)
+                # See METRICS_PATH: a collector's bearer token is not a JWT, and the
+                # endpoint checks it itself.
+                principal = (
+                    None if request.url.path == METRICS_PATH else await authenticate(request)
+                )
                 decision = await _apply_rate_limit(request, principal, source_ip)
                 if principal is not None:
                     await enforce_session_revocation(principal)
             except RateLimitExceededError as exc:
+                metrics.rate_limit_refusals_total.labels(
+                    tier=str(exc.details.get("tier", "unknown"))
+                ).inc()
                 response = JSONResponse(status_code=429, content=exc.to_envelope())
                 response.headers["Retry-After"] = str(exc.retry_after)
                 response.headers["X-Request-ID"] = request_id
-                return response
+                return _observed(request, response, started)
             except CareOSError as exc:
-                return JSONResponse(status_code=exc.status_code, content=exc.to_envelope())
+                if isinstance(exc, AuthenticationError):
+                    # Split out because a spike in revoked-session refusals means an
+                    # offboarding just happened, and a spike in the rest means something else.
+                    reason = "revoked" if "ended by an administrator" in exc.message else "invalid"
+                    metrics.sessions_rejected_total.labels(reason=reason).inc()
+                return _observed(
+                    request,
+                    JSONResponse(status_code=exc.status_code, content=exc.to_envelope()),
+                    started,
+                )
 
             response = await call_next(request)
 
@@ -120,7 +146,7 @@ def create_app() -> FastAPI:
             commit_failure = await _commit_unit_of_work(request)
             if commit_failure is not None:
                 commit_failure.headers["X-Request-ID"] = request_id
-                return commit_failure
+                return _observed(request, commit_failure, started)
 
             response.headers["X-Request-ID"] = request_id
             if decision is not None:
@@ -129,7 +155,7 @@ def create_app() -> FastAPI:
                 response.headers["RateLimit-Limit"] = str(decision.limit)
                 response.headers["RateLimit-Remaining"] = str(decision.remaining)
                 response.headers["RateLimit-Reset"] = str(decision.reset_after)
-            return response
+            return _observed(request, response, started)
         finally:
             request_id_var.reset(request_id_token)
             source_ip_var.reset(source_ip_token)
@@ -213,7 +239,51 @@ def create_app() -> FastAPI:
         """
         return {"status": "ok", "service": "careos-api"}
 
+    @app.get(METRICS_PATH, tags=["ops"], include_in_schema=False)
+    async def scrape(request: Request, _: None = Depends(public())) -> Response:
+        """Prometheus exposition for a collector.
+
+        `public()` because a scraper is not a CareOS user and has no agency — there is no role
+        in the RBAC model that fits it, and inventing one would put a login in the monitoring
+        path. Access is a bearer token from configuration instead, which production must set
+        (`validate_settings`) and which local development may leave empty.
+
+        Compared in constant time. The comparison is cheap and the endpoint is reachable
+        before authentication, so a timing oracle here would be a free one.
+        """
+        expected = get_settings().metrics_token
+        if expected:
+            supplied = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+            if not secrets.compare_digest(supplied, expected):
+                raise AuthenticationError("Invalid metrics token")
+        return Response(content=metrics.render(), media_type=metrics.CONTENT_TYPE)
+
     return app
+
+
+def _observed(request: Request, response: Response, started: float) -> Response:
+    """Record one request's outcome, then hand the response straight back.
+
+    Every return path in the middleware goes through here, including the ones that never reach
+    the router. That is deliberate: a rate-limit refusal and an authentication failure are
+    exactly the requests worth counting, and a wrapper that only saw handled requests would go
+    quiet precisely when something was wrong.
+
+    The label is the route *template*, resolved the same way the limiter resolves it. A
+    concrete path would make `/v1/visits/{visit_id}` a new time series per visit, which is how
+    a metrics backend falls over — and it would put identifiers in a store that keeps them
+    longer and shares them wider than the database does.
+    """
+    resolved = resolve_route_path(request.app, request.url.path, request.method)
+    # Unmatched paths collapse to one series rather than minting one per scanned URL.
+    route = resolved[0] if resolved is not None else "<unmatched>"
+    metrics.requests_total.labels(
+        method=request.method, route=route, status=str(response.status_code)
+    ).inc()
+    metrics.request_duration_seconds.labels(method=request.method, route=route).observe(
+        time.perf_counter() - started
+    )
+    return response
 
 
 async def _commit_unit_of_work(request: Request) -> JSONResponse | None:
@@ -276,6 +346,7 @@ async def _commit_unit_of_work(request: Request) -> JSONResponse | None:
 
 
 def _commit_failed_response() -> JSONResponse:
+    metrics.commit_failures_total.inc()
     error = CommitFailedError(
         "The request could not be saved. Nothing was changed — please try again."
     )
