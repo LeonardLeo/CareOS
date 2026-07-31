@@ -93,8 +93,14 @@ npm run i18n:check    # user-facing strings not going through the translator
 ```bash
 make check            # everything CI runs: lint, types, tests
 make test-isolation   # just the multi-tenant isolation suite
+make migration-check  # migrate down and up, then assert models and migrations agree
 make help             # all targets
 ```
+
+`make migration-check` is separate from `make check` because it downgrades your local database
+to base and back. Run it whenever you add a migration: `alembic check` is what catches a
+migration that disagrees with its ORM model — a wrong `ondelete`, a missing index — and it was
+CI-only long enough to catch one after the push rather than before it.
 
 ## Admin web app
 

@@ -43,7 +43,10 @@ def upgrade() -> None:
         sa.Column(
             "agency_id",
             postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("agency.id", ondelete="CASCADE"),
+            # RESTRICT, matching `TenantMixin` — and it must match, or `alembic check`
+            # fails. Deleting an agency out from under its rows is not a thing this system
+            # does; the export endpoint is how an agency leaves.
+            sa.ForeignKey("agency.id", ondelete="RESTRICT"),
             nullable=False,
         ),
         sa.Column("url", sa.Text(), nullable=False),
@@ -72,7 +75,10 @@ def upgrade() -> None:
         sa.Column(
             "agency_id",
             postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("agency.id", ondelete="CASCADE"),
+            # RESTRICT, matching `TenantMixin` — and it must match, or `alembic check`
+            # fails. Deleting an agency out from under its rows is not a thing this system
+            # does; the export endpoint is how an agency leaves.
+            sa.ForeignKey("agency.id", ondelete="RESTRICT"),
             nullable=False,
         ),
         sa.Column(
@@ -97,6 +103,12 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
     )
+    # `TenantMixin` declares `index=True` on `agency_id`, so the plain single-column index has
+    # to exist here too. The composite index below serves the worker's query; this one is what
+    # the ORM says the schema has, and a difference between the two is exactly what
+    # `alembic check` is for.
+    op.create_index("ix_webhook_subscription_agency_id", "webhook_subscription", ["agency_id"])
+    op.create_index("ix_webhook_delivery_agency_id", "webhook_delivery", ["agency_id"])
     op.create_index(
         "ix_webhook_delivery_due", "webhook_delivery", ["agency_id", "status", "next_attempt_at"]
     )

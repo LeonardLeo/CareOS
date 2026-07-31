@@ -78,6 +78,21 @@ fix: ## Auto-fix lint and formatting
 typecheck: ## Static type check
 	cd $(API) && .venv/bin/mypy careos
 
+.PHONY: migration-check
+# The sequence CI's "Migration safety" job runs, against your local database. `alembic check`
+# is the part worth having: an empty autogenerate diff is what proves the migrations and the
+# ORM models agree, and drift between them is how a table ends up in production with the wrong
+# `ondelete` or without the index its RLS predicate needs. It was CI-only for several
+# increments, so the first time anyone found out was after a push — which is exactly the
+# feedback loop this repository keeps trying not to have.
+#
+# Destructive: it downgrades your local database to base and back up again.
+migration-check: ## Migrate down and up, then assert the models and migrations agree
+	cd $(API) && .venv/bin/alembic upgrade head
+	cd $(API) && .venv/bin/alembic downgrade base
+	cd $(API) && .venv/bin/alembic upgrade head
+	cd $(API) && .venv/bin/alembic check
+
 .PHONY: check
 check: lint typecheck test ## Everything CI runs
 
