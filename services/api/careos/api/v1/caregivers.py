@@ -286,7 +286,11 @@ async def terminate_caregiver(
     if caregiver.app_user_id is not None:
         user = await session.get(AppUser, caregiver.app_user_id)
         if user is not None:
-            await agency_service.revoke_sessions(
+            # Disabled, not merely revoked. Revocation alone invalidated the tokens on their
+            # phone and left the password working, so a terminated caregiver could sign back in
+            # seconds later and receive a fresh token — an offboarding that wrote a record
+            # saying access was removed while it was not. `disable_user` does both.
+            await agency_service.disable_user(
                 session,
                 principal=principal,
                 user=user,

@@ -12,8 +12,11 @@
  *
  * **The Spanish here is shipping copy, not placeholder.** A dictionary half-filled with
  * English strings marked "TODO" renders as an app that switches language mid-screen, which is
- * worse than one that only speaks English — `missingKeys()` and the test over it exist so
- * that state cannot be reached quietly.
+ * worse than one that only speaks English. Two things keep that from happening quietly: `ES` is
+ * annotated `Record<StringKey, string>`, so a key added here and forgotten there is a compile
+ * error, and `npm run i18n:check` — wired into CI — fails on user-facing text that never
+ * reached this file at all. `missingKeys()` and `identicalToEnglish()` are exported for a
+ * runtime check; nothing calls them today, and the compiler covers the first of the two.
  *
  * Scheduling and compliance vocabulary is chosen for a US home-care agency whose bilingual
  * staff are usually speakers of Latin American Spanish, so "horario" rather than "agenda" for
@@ -65,6 +68,8 @@ const EN = {
     password: "Password",
     signingIn: "Signing in…",
     signInFailed: "That email and password did not match. Please try again.",
+    signInDisabled: "This account has been disabled. Contact your agency administrator.",
+    signInUnavailable: "Could not sign in. Please try again.",
     mfaNotice:
       "Multi-factor authentication is required for owner, clinical supervisor and billing roles before production use.",
 
@@ -393,6 +398,24 @@ const EN = {
     endSessions: "End all sessions",
     endSessionsPrompt: "Why are you ending this user's sessions?",
     endingSessions: "Ending sessions…",
+    disableAccount: "Disable account",
+    enableAccount: "Enable account",
+    accountDisabled: "Account disabled",
+    accountEnabled: "Account enabled",
+    accountDisabledNote:
+      "They are signed out everywhere and cannot sign in again until the account is enabled.",
+    accountEnabledNote: "They can sign in again. Sessions ended earlier stay ended.",
+    disabledBecause: "Disabled: {reason}",
+    disableReasonLabel: "Reason for disabling {email}",
+    endSessionsReasonLabel: "Reason for ending {email}'s sessions",
+    roleForUser: "Role for {email}",
+    sessionsEndedAt:
+      "Sessions ended {when}. They can sign in again — this ends sessions, it does not disable the account.",
+    usersOverview_one:
+      "{count} account, {live} able to sign in. Ending sessions signs someone out everywhere; disabling the account also stops them signing back in.",
+    usersOverview_other:
+      "{count} accounts, {live} able to sign in. Ending sessions signs someone out everywhere; disabling the account also stops them signing back in.",
+    you: "you",
     initialPassword: "Initial password",
     fullName: "Full name",
 
@@ -461,6 +484,9 @@ const ES: Record<StringKey, string> = {
     password: "Contraseña",
     signingIn: "Iniciando sesión…",
     signInFailed: "El correo y la contraseña no coinciden. Inténtelo de nuevo.",
+    signInDisabled:
+      "Esta cuenta ha sido desactivada. Comuníquese con el administrador de su agencia.",
+    signInUnavailable: "No se pudo iniciar sesión. Inténtelo de nuevo.",
     mfaNotice:
       "La autenticación de múltiples factores es obligatoria para las funciones de propietario, supervisor clínico y facturación antes del uso en producción.",
 
@@ -783,6 +809,25 @@ const ES: Record<StringKey, string> = {
     endSessions: "Cerrar todas las sesiones",
     endSessionsPrompt: "¿Por qué está cerrando las sesiones de este usuario?",
     endingSessions: "Cerrando sesiones…",
+    disableAccount: "Desactivar cuenta",
+    enableAccount: "Activar cuenta",
+    accountDisabled: "Cuenta desactivada",
+    accountEnabled: "Cuenta activada",
+    accountDisabledNote:
+      "Se cierra su sesión en todos los dispositivos y no podrá volver a iniciar sesión hasta que se active la cuenta.",
+    accountEnabledNote:
+      "Ya puede volver a iniciar sesión. Las sesiones cerradas anteriormente siguen cerradas.",
+    disabledBecause: "Desactivada: {reason}",
+    disableReasonLabel: "Motivo para desactivar la cuenta de {email}",
+    endSessionsReasonLabel: "Motivo para cerrar las sesiones de {email}",
+    roleForUser: "Función de {email}",
+    sessionsEndedAt:
+      "Sesiones cerradas el {when}. Puede volver a iniciar sesión — esto cierra las sesiones, no desactiva la cuenta.",
+    usersOverview_one:
+      "{count} cuenta, {live} puede iniciar sesión. Cerrar las sesiones desconecta a la persona de todos los dispositivos; desactivar la cuenta además le impide volver a entrar.",
+    usersOverview_other:
+      "{count} cuentas, {live} pueden iniciar sesión. Cerrar las sesiones desconecta a la persona de todos los dispositivos; desactivar la cuenta además le impide volver a entrar.",
+    you: "usted",
     initialPassword: "Contraseña inicial",
     fullName: "Nombre completo",
 

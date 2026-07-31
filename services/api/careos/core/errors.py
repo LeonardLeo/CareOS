@@ -40,6 +40,21 @@ class AuthenticationError(CareOSError):
     code = "AUTHENTICATION_REQUIRED"
 
 
+class AccountInactiveError(AuthenticationError):
+    """Correct credentials, but the account is disabled or not yet activated.
+
+    A separate code rather than a separate message, because a client that branches on the text
+    of an error is a client that breaks when the text is improved. It exists so a sign-in screen
+    can say "this account has been disabled — contact your administrator" instead of "invalid
+    email or password", which sends someone to reset a password that was never the problem.
+
+    Reaching this discloses nothing an attacker did not already have: the password is verified
+    first, so only somebody holding valid credentials is ever told the account is inactive.
+    """
+
+    code = "ACCOUNT_INACTIVE"
+
+
 class PermissionDeniedError(CareOSError):
     status_code = 403
     code = "PERMISSION_DENIED"

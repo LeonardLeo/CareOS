@@ -39,6 +39,8 @@ class AuditAction(enum.StrEnum):
     #: wipe locally cached PHI (`08_Security_Architecture.md` Section 6). Auditable in its own
     #: right: it is the evidence that offboarding actually happened.
     user_sessions_revoked = "user.sessions_revoked"
+    user_disabled = "user.disabled"
+    user_enabled = "user.enabled"
     caregiver_terminated = "caregiver.terminated"
 
     client_created = "client.created"

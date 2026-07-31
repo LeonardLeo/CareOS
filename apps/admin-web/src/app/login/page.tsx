@@ -28,7 +28,17 @@ export default async function LoginPage({
           </div>
         </div>
 
-        {error && <ErrorNote title={error} />}
+        {error && (
+          <ErrorNote
+            title={t(
+              error === "disabled"
+                ? "signInDisabled"
+                : error === "invalid"
+                  ? "signInFailed"
+                  : "signInUnavailable",
+            )}
+          />
+        )}
 
         {/*
           A plain form post to a server route handler. No client-side JavaScript touches the

@@ -24,6 +24,7 @@ const STRINGS = {
     password: "Password",
     signingIn: "Signing in…",
     signInFailed: "That email and password did not match. Please try again.",
+    signInDisabled: "This account has been disabled. Contact your agency administrator.",
     signOut: "Sign out",
 
     today: "Today",
@@ -72,6 +73,8 @@ const STRINGS = {
     password: "Contraseña",
     signingIn: "Iniciando sesión…",
     signInFailed: "El correo y la contraseña no coinciden. Inténtelo de nuevo.",
+    signInDisabled:
+      "Esta cuenta ha sido desactivada. Comuníquese con el administrador de su agencia.",
     signOut: "Cerrar sesión",
 
     today: "Hoy",

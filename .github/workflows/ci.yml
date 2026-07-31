@@ -326,6 +326,14 @@ jobs:
       - name: Type check
         working-directory: apps/admin-web
         run: npm run typecheck
+      # The compiler already refuses a key defined in English and missing in Spanish. What it
+      # cannot see is a sentence that never reached the dictionary at all — a heading typed
+      # straight into the JSX renders an English title on a Spanish page, which is the
+      # half-translated state that is worse than not translating. The script exists to catch
+      # that and was not being run by anything.
+      - name: Untranslated strings
+        working-directory: apps/admin-web
+        run: npm run i18n:check
       - name: Build
         working-directory: apps/admin-web
         run: npm run build

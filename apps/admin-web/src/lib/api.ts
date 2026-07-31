@@ -32,6 +32,17 @@ export class ApiError extends Error {
   get isAuthError(): boolean {
     return this.status === 401;
   }
+
+  /**
+   * Valid credentials, disabled account.
+   *
+   * Worth telling apart from a bad password: someone whose account was disabled types the
+   * right password, is told it is wrong, and calls the agency to have a password reset that
+   * was never the problem.
+   */
+  get isAccountInactive(): boolean {
+    return this.code === "ACCOUNT_INACTIVE";
+  }
 }
 
 interface RequestOptions {
@@ -231,6 +242,8 @@ export interface AgencyUser {
   created_at: string;
   /** Set once an administrator has ended this user's sessions. */
   sessions_revoked_at: string | null;
+  /** Why the account was disabled, when it is. Null for an account in service. */
+  disabled_reason: string | null;
 }
 
 export interface ReviewStatus {
@@ -326,6 +339,16 @@ export const api = {
       method: "POST",
       body: { reason },
     }),
+
+  disableUser: (token: string, userId: string, reason: string) =>
+    apiFetch<AgencyUser>(`/v1/users/${userId}/disable`, {
+      token,
+      method: "POST",
+      body: { reason },
+    }),
+
+  enableUser: (token: string, userId: string) =>
+    apiFetch<AgencyUser>(`/v1/users/${userId}/enable`, { token, method: "POST" }),
 
   clients: (token: string) => apiFetch<Client[]>("/v1/clients", { token }),
 

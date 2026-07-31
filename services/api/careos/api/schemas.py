@@ -105,6 +105,9 @@ class UserOut(ORMModel):
     #: When this user's sessions were last cut off, or None. Returned so an administrator can
     #: see that an offboarding actually took effect rather than having to trust that it did.
     sessions_revoked_at: datetime | None = None
+    #: Why a disabled account was disabled. Present on the user list so the answer to "why can
+    #: this person not sign in?" is on the screen that raises the question.
+    disabled_reason: str | None = None
 
 
 class RoleChange(BaseModel):
@@ -117,6 +120,17 @@ class RevokeSessions(BaseModel):
     Required rather than optional, and recorded in the audit log. Revocation is the action an
     agency will need to evidence during an audit — "we removed access when this caregiver left"
     is a claim, and a reason attached to a timestamp is what supports it.
+    """
+
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class DisableUser(BaseModel):
+    """Why an account is being disabled.
+
+    Required for the same reason revocation's is: disabling someone's access is an action an
+    agency has to be able to evidence later, and it is also the text the next administrator
+    reads when they wonder why this person cannot sign in.
     """
 
     reason: str = Field(min_length=3, max_length=500)

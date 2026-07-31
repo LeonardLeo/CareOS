@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-31
-**Assessed by:** build increment 16 (outbound webhooks)
+**Assessed by:** build increment 17 (account disablement)
 
 ---
 
@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 338 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
+| Tests | 348 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **Admin web app and caregiver app both built and working.** Caregiver app is an installable PWA, not React Native — see below |
 | Compliance review | **Not performed** |
@@ -81,6 +81,35 @@ ranking, ambient extraction, and claim scrubbing are all core to the roadmap.
   - A reason is required and audited. "We removed their access when they left" is a claim, and
     a reason attached to a timestamp and an actor is what evidences it.
 - **Error envelope.** Single shape for every failure, including FastAPI validation errors.
+- **Account disablement, and the defect that motivated it.** Revoking sessions and disabling an
+  account are two operations, and until this increment only the first existed. Termination
+  called it and stopped there — so a terminated caregiver, whose sessions had just been cut off,
+  could sign in again a second later with the password they still knew and receive a fresh
+  token. The feature returned 200 and wrote an audit row saying access was removed. **Verified
+  before fixing**: the test written against the old code answered 200 where it asserted 401.
+  - `disable_user` closes both doors in one transaction: `status` stops the login path issuing
+    tokens and the refresh path renewing them, and the revocation watermark kills the tokens
+    already out. Either half alone leaves a hole — status only, and a disabled account keeps
+    working for the life of its access token; watermark only, and that is the defect above.
+  - Enabling does **not** clear the watermark. The obvious shortcut would resurrect every token
+    issued before the disablement, including the one on the phone that was handed back.
+  - Refused for your own account (unrecoverable without support; revoking your own sessions is
+    the reversible thing you probably wanted) and for the agency's last enabled owner/admin. The
+    second guard is unreachable through today's routes — anyone else with permission to disable
+    is themselves an enabled owner/admin, so the count is never zero — and is held at the
+    service boundary rather than through a route where the test would pass for the wrong reason.
+  - A reason is required, stored on the row, and audited. On the row as well as in the log
+    because "why can this person not sign in?" is asked by whoever is looking at the user list.
+  - **`ACCOUNT_INACTIVE` is its own error code.** A disabled user typing the correct password
+    was told "invalid email or password", which sends them to reset a password that was never
+    the problem. Both apps now say the account was disabled. This discloses nothing: the
+    password is verified *first*, so only somebody holding valid credentials ever sees it, and a
+    wrong password or an unknown address still returns the same indistinguishable
+    `AUTHENTICATION_REQUIRED`.
+  - Verified in a real browser end to end: disable from the Users screen, the row shows the
+    reason, the target is refused at sign-in with the disabled message in both English and
+    Spanish, a wrong password still gets the generic one, enable restores sign-in, and the
+    owner's own row offers no disable button.
 - **Data export** (`POST /agencies/{id}/export`). `06_Compliance_and_Regulatory_Requirements.md`
   Section 8 asks for export tooling as a first-class feature "not an afterthought", and the
   PRD's non-functional table makes it a portability requirement.
@@ -535,7 +564,7 @@ These are honest placeholders, not oversights:
 | Penetration test | **Not performed** |
 | Brute-force protection | **Built and tested.** 10 login attempts per minute per account and address, 30 per address across accounts, counted before the password is checked. Account lockout after repeated failures is *not* implemented — the limiter slows an attacker rather than stopping them, and a lockout policy needs a decision about the denial-of-service it enables |
 | EVV abuse detection | **Detection only.** Section 9 asks for heuristics in place of throttling on clock-in/out; volume per caregiver is counted and logged above a ceiling no human reaches, but it is not surfaced in the exception queue, and device fingerprinting and geo-velocity are not built — the app does not yet send a device identity |
-| Offboarding | **Built and tested.** Terminating a caregiver revokes their login in the same transaction, and an owner can end any user's sessions from the Users screen with an audited reason. Account *disablement* (as distinct from ending sessions) is still not exposed |
+| Offboarding | **Built and tested, and a real hole closed.** Terminating a caregiver now *disables* their account rather than only revoking its sessions — until this increment a terminated caregiver could sign straight back in with the password they still knew, so the offboarding wrote a record saying access was removed while it was not. Disabling and enabling are on the Users screen, both audited, and a disabled account is refused at login and at refresh |
 
 ## Fixed: responses were sent before their transaction committed
 

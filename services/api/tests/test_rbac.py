@@ -123,6 +123,8 @@ EXPECTED_ACCESS: dict[str, list[str]] = {
     ],
     "POST /v1/job-postings": ["owner_admin", "scheduler"],
     "POST /v1/users/{user_id}/revoke-sessions": ["owner_admin"],
+    "POST /v1/users/{user_id}/disable": ["owner_admin"],
+    "POST /v1/users/{user_id}/enable": ["owner_admin"],
     # Where an agency's event stream is sent is a security setting, so creating and changing
     # a subscription is owner-admin only. Reading is open to the auditor, whose job is to see
     # what the agency has configured — the response never contains the signing secret.

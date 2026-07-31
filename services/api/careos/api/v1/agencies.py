@@ -187,6 +187,52 @@ async def revoke_sessions(
     return schemas.UserOut.model_validate(user)
 
 
+@router.post("/users/{user_id}/disable", response_model=schemas.UserOut)
+async def disable_user(
+    user_id: uuid.UUID,
+    payload: schemas.DisableUser,
+    principal: Principal = Depends(requires(Role.owner_admin)),
+    session: AsyncSession = Depends(db_session),
+) -> schemas.UserOut:
+    """Disable an account: stop it signing in, and end the sessions it already has.
+
+    Deliberately separate from `revoke-sessions`, which ends sessions and nothing else. A
+    revoked user can sign straight back in with the password they still know — right for a lost
+    phone, wrong for someone who no longer works here. This is the second case.
+
+    Refused for your own account and for the agency's last enabled owner/admin; see
+    `agency_service.disable_user` for why each would be unrecoverable without support.
+    """
+    user = await session.get(AppUser, user_id)
+    if user is None:
+        raise NotFoundError("User not found")
+
+    await agency_service.disable_user(
+        session, principal=principal, user=user, reason=payload.reason
+    )
+    return schemas.UserOut.model_validate(user)
+
+
+@router.post("/users/{user_id}/enable", response_model=schemas.UserOut)
+async def enable_user(
+    user_id: uuid.UUID,
+    principal: Principal = Depends(requires(Role.owner_admin)),
+    session: AsyncSession = Depends(db_session),
+) -> schemas.UserOut:
+    """Return a disabled account to service.
+
+    No reason required, unlike disabling. The asymmetry is on purpose: removing someone's
+    access is what an agency has to evidence, and requiring a justification to restore it is
+    friction on the safe direction.
+    """
+    user = await session.get(AppUser, user_id)
+    if user is None:
+        raise NotFoundError("User not found")
+
+    await agency_service.enable_user(session, principal=principal, user=user)
+    return schemas.UserOut.model_validate(user)
+
+
 @router.get(
     "/agencies/{agency_id}/compliance-reviews", response_model=list[schemas.ReviewStatusOut]
 )

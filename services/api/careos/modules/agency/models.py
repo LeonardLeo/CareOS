@@ -101,6 +101,12 @@ class AppUser(Base, PrimaryKeyMixin, TimestampMixin):
     sessions_revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: Why this account was disabled, in the words of the administrator who did it. Kept on the
+    #: row rather than only in the audit log because the question "why can this person not sign
+    #: in?" is asked by whoever is looking at the user list, and an answer that requires an
+    #: audit-log query is an answer most people will not get. Cleared when the account is
+    #: re-enabled; the audit log keeps the history either way.
+    disabled_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 #: Roles for which MFA is mandatory, not advisory.

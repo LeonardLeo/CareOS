@@ -14,24 +14,24 @@
  * Ending sessions asks for a reason before it will proceed. That is not friction for its own
  * sake: the reason lands in the audit log, and "we removed their access when they left" is a
  * claim an agency has to be able to evidence.
+ *
+ * **Ending sessions and disabling the account are two buttons, not one.** They read similarly
+ * and they are not the same thing: ending sessions signs someone out of every device and lets
+ * them sign back in with the password they know, which is what a lost phone needs; disabling
+ * also stops them signing in at all, which is what leaving needs. Collapsing them into one
+ * control would mean either a lost phone locking someone out of their shift, or an offboarding
+ * that quietly left the door open. The row states which one has happened, and a disabled
+ * account shows the reason it was given rather than the session note — an administrator reading
+ * "they can sign in again" under a disabled account would be reading something untrue.
  */
 
 import { Card, EmptyState, ErrorNote, SeverityBadge, formatDate, formatDateTime } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
-import { translatorFor } from "@/lib/i18n";
+import { roleLabel, translatorFor } from "@/lib/i18n";
 import { getLocale } from "@/lib/locale";
 import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
-
-const ROLE_LABEL: Record<string, string> = {
-  owner_admin: "Owner / Admin",
-  scheduler: "Scheduler",
-  clinical_supervisor: "Clinical Supervisor",
-  caregiver: "Caregiver",
-  billing_rcm: "Billing / RCM",
-  auditor: "Auditor",
-};
 
 /** Assignable roles. `owner_admin` is included so administration can be handed over. */
 const ASSIGNABLE_ROLES = [
@@ -49,17 +49,27 @@ const MFA_REQUIRED = ["owner_admin", "clinical_supervisor", "billing_rcm"];
 export default async function UsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ invited?: string; revoked?: string; changed?: string; error?: string }>;
+  searchParams: Promise<{
+    invited?: string;
+    revoked?: string;
+    changed?: string;
+    disabled?: string;
+    enabled?: string;
+    error?: string;
+  }>;
 }) {
   const session = await getSession();
   if (!session) return null;
-  const t = translatorFor(await getLocale());
-  const { invited, revoked, changed, error } = await searchParams;
+  const locale = await getLocale();
+  const t = translatorFor(locale);
+  const { invited, revoked, changed, disabled, enabled, error } = await searchParams;
 
   try {
     const users = await api.users(session.token, session.agencyId);
     const canAdminister = session.role === "owner_admin";
-    const live = users.filter((u) => u.sessions_revoked_at === null).length;
+    // "Able to sign in" rather than "has a live session": a revoked user can sign back
+    // in, a disabled one cannot, and it is the second fact an owner is counting.
+    const live = users.filter((u) => u.status !== "suspended").length;
 
     return (
       <>
@@ -67,9 +77,7 @@ export default async function UsersPage({
           <div>
             <h1 className="page-title">{t("usersTitle")}</h1>
             <p className="page-subtitle">
-              {users.length} account{users.length === 1 ? "" : "s"}, {live} with live sessions.
-              Ending someone&apos;s sessions signs them out everywhere and makes the caregiver
-              app clear the client details saved on their phone.
+              {t("usersOverview", { count: users.length, live })}
             </p>
           </div>
         </header>
@@ -94,6 +102,18 @@ export default async function UsersPage({
             </span>
           </div>
         )}
+        {disabled && (
+          <div className="notice">
+            <SeverityBadge severity="good">{t("accountDisabled")}</SeverityBadge>
+            <span>{t("accountDisabledNote")}</span>
+          </div>
+        )}
+        {enabled && (
+          <div className="notice">
+            <SeverityBadge severity="good">{t("accountEnabled")}</SeverityBadge>
+            <span>{t("accountEnabledNote")}</span>
+          </div>
+        )}
         {error && <ErrorNote title={t("couldNotCompleteStep")} detail={error} />}
 
         <div className="grid-2">
@@ -110,10 +130,12 @@ export default async function UsersPage({
                     <div className="userrow__main">
                       <div className="userrow__email">
                         {user.email}
-                        {user.id === session.userId && <span className="userrow__you">you</span>}
+                        {user.id === session.userId && (
+                          <span className="userrow__you">{t("you")}</span>
+                        )}
                       </div>
                       <div className="small muted">
-                        {ROLE_LABEL[user.role] ?? user.role} · {user.status} · added{" "}
+                        {roleLabel(locale, user.role)} · {user.status} · added{" "}
                         {formatDate(user.created_at)}
                         {MFA_REQUIRED.includes(user.role) && !user.mfa_enrolled && (
                           // Enrolment is tracked but not yet enforced at login. Showing the gap
@@ -124,10 +146,19 @@ export default async function UsersPage({
                           </>
                         )}
                       </div>
-                      {user.sessions_revoked_at && (
+                      {user.disabled_reason && (
+                        // Shown above the session note, because it is the stronger statement:
+                        // a disabled account cannot sign in at all, and an administrator
+                        // reading "they can sign in again" underneath it would be misled.
                         <div className="small userrow__revoked">
-                          Sessions ended {formatDateTime(user.sessions_revoked_at)}. They can sign
-                          in again — this ends sessions, it does not disable the account.
+                          {t("disabledBecause", { reason: user.disabled_reason })}
+                        </div>
+                      )}
+                      {user.sessions_revoked_at && !user.disabled_reason && (
+                        <div className="small userrow__revoked">
+                          {t("sessionsEndedAt", {
+                            when: formatDateTime(user.sessions_revoked_at),
+                          })}
                         </div>
                       )}
                     </div>
@@ -137,7 +168,7 @@ export default async function UsersPage({
                         <form method="post" action="/api/users/role" className="userrow__form">
                           <input type="hidden" name="user_id" value={user.id} />
                           <label className="hidden-label" htmlFor={`role-${user.id}`}>
-                            Role for {user.email}
+                            {t("roleForUser", { email: user.email })}
                           </label>
                           <select
                             className="field__input field__input--compact"
@@ -147,7 +178,7 @@ export default async function UsersPage({
                           >
                             {ASSIGNABLE_ROLES.map((role) => (
                               <option key={role} value={role}>
-                                {ROLE_LABEL[role]}
+                                {roleLabel(locale, role)}
                               </option>
                             ))}
                           </select>
@@ -159,7 +190,7 @@ export default async function UsersPage({
                         <form method="post" action="/api/users/revoke" className="userrow__form">
                           <input type="hidden" name="user_id" value={user.id} />
                           <label className="hidden-label" htmlFor={`reason-${user.id}`}>
-                            Reason for ending {user.email}&apos;s sessions
+                            {t("endSessionsReasonLabel", { email: user.email })}
                           </label>
                           <input
                             className="field__input field__input--compact"
@@ -173,6 +204,48 @@ export default async function UsersPage({
                             {t("endSessions")}
                           </button>
                         </form>
+
+                        {user.status === "suspended" ? (
+                          <form method="post" action="/api/users/enable" className="userrow__form">
+                            <input type="hidden" name="user_id" value={user.id} />
+                            <button className="button button--small button--secondary" type="submit">
+                              {t("enableAccount")}
+                            </button>
+                          </form>
+                        ) : (
+                          user.id !== session.userId && (
+                            // Hidden for yourself because the API refuses it. Offering a button
+                            // whose only outcome is an error message is worse than not offering
+                            // it: the owner learns the rule by being told off.
+                            <form
+                              method="post"
+                              action="/api/users/disable"
+                              className="userrow__form"
+                            >
+                              <input type="hidden" name="user_id" value={user.id} />
+                              <label
+                                className="hidden-label"
+                                htmlFor={`disable-reason-${user.id}`}
+                              >
+                                {t("disableReasonLabel", { email: user.email })}
+                              </label>
+                              <input
+                                className="field__input field__input--compact"
+                                id={`disable-reason-${user.id}`}
+                                name="reason"
+                                placeholder={t("reasonRecorded")}
+                                minLength={3}
+                                required
+                              />
+                              <button
+                                className="button button--small button--danger"
+                                type="submit"
+                              >
+                                {t("disableAccount")}
+                              </button>
+                            </form>
+                          )
+                        )}
                       </div>
                     )}
                   </div>
@@ -205,7 +278,7 @@ export default async function UsersPage({
                   <select className="field__input" id="role" name="role" defaultValue="scheduler">
                     {ASSIGNABLE_ROLES.map((role) => (
                       <option key={role} value={role}>
-                        {ROLE_LABEL[role]}
+                        {roleLabel(locale, role)}
                       </option>
                     ))}
                   </select>

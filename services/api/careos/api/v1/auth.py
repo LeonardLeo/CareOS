@@ -7,7 +7,11 @@ from fastapi import APIRouter, Depends, status
 from careos.api import schemas
 from careos.config import get_settings
 from careos.core.context import source_ip_var
-from careos.core.errors import AuthenticationError, RateLimitExceededError
+from careos.core.errors import (
+    AccountInactiveError,
+    AuthenticationError,
+    RateLimitExceededError,
+)
 from careos.core.ratelimit import get_rate_limiter
 from careos.core.rbac import public
 from careos.core.security import create_token, decode_token
@@ -91,7 +95,11 @@ async def refresh(payload: schemas.RefreshRequest) -> schemas.TokenPair:
         # suspension between issuing and refreshing must take effect at refresh, otherwise
         # a revoked account keeps working for the refresh token's full lifetime.
         if user is None or user.status.value != "active":
-            raise AuthenticationError("This account is no longer active")
+            # Same code as the login path so a client has one branch to write, not two. The
+            # refresh token is proof of a prior sign-in, so this discloses nothing either.
+            raise AccountInactiveError(
+                "This account has been disabled. Contact your agency administrator."
+            )
         access, new_refresh = agency_service.issue_tokens(user, principal.caregiver_id)
     return schemas.TokenPair(
         access_token=access,

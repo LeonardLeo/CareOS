@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import type { Locale, Translator } from "@/lib/i18n";
 import { storeSession } from "@/lib/session";
 
@@ -27,20 +27,24 @@ export function Login({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<null | "credentials" | "disabled">(null);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
-    setFailed(false);
+    setFailed(null);
     try {
       const tokens = await api.login(email, password);
       storeSession(tokens.access_token);
       onSignedIn();
-    } catch {
+    } catch (error) {
       // One message for a wrong password and an unknown address, matching the API, which
-      // deliberately does not distinguish them.
-      setFailed(true);
+      // deliberately does not distinguish them. A disabled account is the exception, and the
+      // API only says so once the password has checked out — so this reveals nothing to
+      // someone guessing, and saves a caregiver whose account was disabled from trying their
+      // password over and over on a phone in a client's hallway.
+      const disabled = error instanceof ApiError && error.code === "ACCOUNT_INACTIVE";
+      setFailed(disabled ? "disabled" : "credentials");
     } finally {
       setBusy(false);
     }
@@ -108,7 +112,7 @@ export function Login({
 
           {failed && (
             <div className="note note--danger" role="alert">
-              {t("signInFailed")}
+              {t(failed === "disabled" ? "signInDisabled" : "signInFailed")}
             </div>
           )}
 

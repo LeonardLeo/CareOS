@@ -110,7 +110,10 @@ Next.js App Router, server-rendered. Three deliberate choices:
 
 Fully localized in English and Spanish, resolved server-side so the first paint is in the
 right language rather than flashing English and correcting itself. `npm run i18n:check`
-fails on any user-facing string that is not going through the translator.
+fails on any user-facing string that is not going through the translator, and now runs in CI —
+it existed for an increment without anything calling it, which made it documentation rather
+than a check. Route handlers redirect with a *code* rather than a sentence for the same reason:
+an English message in a query string renders in English no matter what the reader chose.
 
 Screens: dashboard, scheduling board with gap queue and ranked suggestions (Flow A, the
 highest-frequency flow), recruiting funnel and applicant pipeline, credentialing renewal
@@ -420,6 +423,38 @@ functions with tests, not a running process — there is no scheduler, cron entr
 consumer in this repository. Until one exists, a deployment queues webhooks and delivers none of
 them. That is a deployment gap rather than a code gap, but it is the difference between this
 working and not.
+
+## Ending sessions vs disabling an account
+
+Two operations on the Users screen that read alike and are not the same, and the difference was
+a real hole in this codebase until recently.
+
+**Revoking sessions** invalidates every token a user is holding — the point of it is that the
+caregiver app wipes its cached client names and addresses when the API rejects a token, which
+is the remote-wipe half of `08_Security_Architecture.md` Section 6. It leaves the account
+working: the user signs in again with the same password. That is exactly right for a lost phone.
+
+**Disabling** does both: `status` stops the login path issuing tokens and the refresh path
+renewing them, and the revocation watermark kills the tokens already out there. Either half
+alone leaves a gap — status only, and a disabled account keeps working for the remaining life of
+its access token; watermark only, and the person signs straight back in.
+
+**Terminating a caregiver used to do only the second half.** Their sessions were cut off and
+their password still worked, so they could sign in seconds later and get a fresh token — while
+the audit log recorded that access had been removed. Termination now disables the account, and
+the test that proves it was written first and watched to fail against the old code.
+
+Two guards on disabling: not your own account (unrecoverable without support — revoking your own
+sessions is the reversible thing you probably meant), and not the agency's last enabled
+owner/admin (an agency with nobody able to administer it cannot even invite a replacement).
+Re-enabling deliberately does *not* clear the revocation watermark, which would resurrect every
+token issued before the disablement, including the one on the phone that was handed back.
+
+A disabled account is refused with its own error code, `ACCOUNT_INACTIVE`, so both apps can say
+"this account has been disabled — contact your administrator" instead of "invalid email or
+password", which sends someone to reset a password that was never the problem. The password is
+verified *before* that branch is reached, so only somebody with valid credentials ever sees it;
+a wrong password and an unknown address remain indistinguishable from each other.
 
 ## Non-negotiable constraints
 

@@ -14,7 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from careos.core.audit import AuditAction, record_audit
 from careos.core.crypto import encrypt_field
-from careos.core.errors import AuthenticationError, ConflictError
+from careos.core.errors import (
+    AccountInactiveError,
+    AuthenticationError,
+    ConflictError,
+    PermissionDeniedError,
+)
 from careos.core.security import Principal, create_token, hash_password, verify_password
 from careos.db.session import tenant_session
 from careos.modules.agency.models import Agency, AppUser, Role, UserStatus
@@ -108,7 +113,11 @@ async def verify_credentials(session: AsyncSession, *, email: str, password: str
     if not user.password_hash or not verify_password(password, user.password_hash):
         raise AuthenticationError("Invalid email or password")
     if user.status is not UserStatus.active:
-        raise AuthenticationError("This account is not active")
+        # Checked after the password, so this branch is only reachable by someone holding
+        # valid credentials — which is what makes saying so safe, and useful.
+        raise AccountInactiveError(
+            "This account has been disabled. Contact your agency administrator."
+        )
     return user
 
 
@@ -254,5 +263,117 @@ async def revoke_sessions(
         entity_id=user.id,
         before_state=before,
         after_state={"sessions_revoked_at": revoked_at.isoformat(), "reason": reason},
+    )
+    return user
+
+
+async def _other_active_owner_admins(session: AsyncSession, *, excluding: uuid.UUID) -> int:
+    """How many usable owner/admins the agency would still have without this one."""
+    return (
+        await session.execute(
+            select(func.count())
+            .select_from(AppUser)
+            .where(
+                AppUser.role == Role.owner_admin,
+                AppUser.status == UserStatus.active,
+                AppUser.id != excluding,
+            )
+        )
+    ).scalar_one()
+
+
+async def disable_user(
+    session: AsyncSession,
+    *,
+    principal: Principal,
+    user: AppUser,
+    reason: str,
+) -> AppUser:
+    """Disable an account and cut off its sessions, in one transaction.
+
+    Distinct from revoking sessions, and the distinction is the whole point. Revocation
+    invalidates the tokens a user is holding; it does not stop them signing in again a second
+    later with the password they still know. That is correct for a lost phone and wrong for
+    everything else — before this, terminating a caregiver revoked their sessions and left them
+    able to log straight back in, which is an offboarding feature that produces a record saying
+    access was removed while it was not.
+
+    Disabling closes both doors: `status` stops the login path issuing new tokens and stops the
+    refresh path renewing old ones, and the revocation watermark kills the tokens already out
+    there. Doing only the first would leave a disabled account working for the remaining life of
+    its access token; doing only the second is the gap described above.
+
+    Deliberately not deletion. An agency needs the account to keep existing — audit rows point
+    at it, a rehire is common in home care, and a deleted user makes historical activity
+    unattributable.
+    """
+    if user.id == principal.user_id:
+        raise PermissionDeniedError(
+            "You cannot disable your own account. To sign yourself out everywhere, revoke "
+            "your sessions instead — that is reversible by signing back in."
+        )
+    if (
+        user.role is Role.owner_admin
+        and user.status is UserStatus.active
+        and await _other_active_owner_admins(session, excluding=user.id) == 0
+    ):
+        # The same reasoning as the self-demotion guard on role changes: an agency with no
+        # enabled owner/admin cannot invite one, and recovering needs support to reach into
+        # the database. Refusing here is cheaper than that conversation.
+        raise ConflictError(
+            "This is the agency's only enabled owner/admin. Promote or enable another "
+            "owner/admin first, or the agency would be left with nobody able to administer it."
+        )
+
+    before = {"status": user.status.value, "disabled_reason": user.disabled_reason}
+    user.status = UserStatus.suspended
+    user.disabled_reason = reason
+    await session.flush()
+
+    # Sessions go too, and through the shared implementation rather than a second copy of the
+    # watermark logic. This writes its own audit row, so the trail shows both facts: the
+    # account was disabled, and the tokens outstanding at that moment stopped working.
+    await revoke_sessions(session, principal=principal, user=user, reason=f"disabled: {reason}")
+
+    await record_audit(
+        session,
+        principal=principal,
+        agency_id=principal.agency_id,
+        action=AuditAction.user_disabled,
+        entity_type="app_user",
+        entity_id=user.id,
+        before_state=before,
+        after_state={"status": user.status.value, "disabled_reason": reason},
+    )
+    return user
+
+
+async def enable_user(
+    session: AsyncSession,
+    *,
+    principal: Principal,
+    user: AppUser,
+) -> AppUser:
+    """Return a disabled account to service.
+
+    The revocation watermark is deliberately left where it is. Clearing it would resurrect
+    every token issued before the disablement — including, in the case this exists for, the one
+    on a phone that was handed back. The user signs in again and gets tokens minted after the
+    watermark, which is the same path a normal password change leaves them on.
+    """
+    before = {"status": user.status.value, "disabled_reason": user.disabled_reason}
+    user.status = UserStatus.active
+    user.disabled_reason = None
+    await session.flush()
+
+    await record_audit(
+        session,
+        principal=principal,
+        agency_id=principal.agency_id,
+        action=AuditAction.user_enabled,
+        entity_type="app_user",
+        entity_id=user.id,
+        before_state=before,
+        after_state={"status": user.status.value},
     )
     return user
