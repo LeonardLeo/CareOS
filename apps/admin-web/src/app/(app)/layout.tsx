@@ -1,31 +1,31 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { api } from "@/lib/api";
+import { type StringKey, roleLabel, translatorFor } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
 import { canSee, getSession } from "@/lib/session";
 
+// Labels are string *keys*, resolved per request. Holding the English here and translating at
+// the call site would put one language in the structure and the other in a lookup, which is
+// how a nav ends up half-translated.
 const NAV = [
-  { href: "/dashboard", label: "Dashboard", area: "dashboard" },
-  { href: "/scheduling", label: "Scheduling", area: "scheduling" },
-  { href: "/clients", label: "Clients", area: "scheduling" },
-  { href: "/exceptions", label: "Exceptions", area: "exceptions" },
-  { href: "/recruiting", label: "Recruiting", area: "recruiting" },
-  { href: "/credentialing", label: "Credentialing", area: "credentialing" },
-  { href: "/compliance", label: "Compliance", area: "compliance" },
-  { href: "/users", label: "Users", area: "users" },
-] as const;
-
-const ROLE_LABEL: Record<string, string> = {
-  owner_admin: "Owner / Admin",
-  scheduler: "Scheduler",
-  clinical_supervisor: "Clinical Supervisor",
-  caregiver: "Caregiver",
-  billing_rcm: "Billing / RCM",
-  auditor: "Auditor",
-};
+  { href: "/dashboard", labelKey: "navDashboard", area: "dashboard" },
+  { href: "/scheduling", labelKey: "navScheduling", area: "scheduling" },
+  { href: "/clients", labelKey: "navClients", area: "scheduling" },
+  { href: "/exceptions", labelKey: "navExceptions", area: "exceptions" },
+  { href: "/recruiting", labelKey: "navRecruiting", area: "recruiting" },
+  { href: "/credentialing", labelKey: "navCredentialing", area: "credentialing" },
+  { href: "/compliance", labelKey: "navCompliance", area: "compliance" },
+  { href: "/users", labelKey: "navUsers", area: "users" },
+] as const satisfies readonly { href: string; labelKey: StringKey; area: string }[];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   if (!session) redirect("/login");
+
+  const locale = await getLocale();
+  const t = translatorFor(locale);
 
   // Hiding a link the role cannot use is a usability courtesy only. The real boundary is the
   // API's RBAC plus row-level security — this layout is not a security control.
@@ -48,15 +48,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             C
           </span>
           <span className="brand__text">
-            CareOS
-            <span className="brand__sub">Agency admin</span>
+            {t("appName")}
+            <span className="brand__sub">{t("appSubtitle")}</span>
           </span>
         </div>
 
-        <nav className="nav" aria-label="Main">
+        <nav className="nav" aria-label={t("navMain")}>
           {links.map((item) => (
             <Link key={item.href} className="nav__link" href={item.href}>
-              <span>{item.label}</span>
+              <span>{t(item.labelKey)}</span>
               {item.href === "/exceptions" && openExceptions > 0 && (
                 <span className="nav__count">{openExceptions}</span>
               )}
@@ -65,10 +65,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </nav>
 
         <div className="sidebar__footer">
-          <div className="sidebar__role">{ROLE_LABEL[session.role] ?? session.role}</div>
+          <div className="sidebar__role">{roleLabel(locale, session.role)}</div>
+          <LanguageSwitcher locale={locale} returnTo="/dashboard" />
           <form method="post" action="/api/auth/logout">
             <button className="button button--ghost button--small" type="submit">
-              Sign out
+              {t("signOut")}
             </button>
           </form>
         </div>

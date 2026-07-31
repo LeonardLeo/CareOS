@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-30
-**Assessed by:** build increment 14 (data export)
+**Assessed by:** build increment 15 (admin app localization, partial)
 
 ---
 
@@ -365,6 +365,32 @@ Honest limitations on this surface specifically:
 | **Not verified on real devices** | Tested in Chromium at a phone viewport. No iOS Safari, no Android Chrome, no real GPS, no genuinely degraded network |
 
 ### Agency admin web app
+
+**Localization (partial).** `02_Product_Requirements_Document.md` requires English and Spanish
+at MVP.
+
+- **The mechanism is complete and the shell is translated.** Dictionary with named-token
+  interpolation and `Intl.PluralRules` for one/other variants — never a bare count dropped into
+  a fixed sentence, which is how "1 credenciales vencidas" happens. Locale resolved on the
+  *server* from a cookie, falling back to a properly parsed `Accept-Language` (quality values
+  honoured, region subtags dropped, `q=0` treated as refusal), so the first paint is in the
+  right language instead of flashing English and correcting itself. `<html lang>` follows the
+  rendered language, which is what decides the voice a screen reader uses.
+- **Locale parity is enforced by the compiler.** The Spanish dictionary is typed
+  `Record<StringKey, string>` against the English one, so a key added to English and forgotten
+  in Spanish fails `tsc` — which CI already runs. Verified by deleting a key and watching the
+  build fail, rather than trusting the annotation.
+- **What is not done: the ten screens.** Their strings are still hardcoded English.
+  `npm run i18n:check` reports the remainder (195 literals at the time of writing, from 200),
+  broken down by file, and is the measure of when this is finished. It is deliberately noisy
+  in one direction — anything it flags that is genuinely not user-facing goes in an `ALLOWED`
+  list with a reason, so the exceptions are readable rather than a rule that quietly stops
+  matching.
+- The switcher is a form POST rather than client-side state, matching sign-out beside it: the
+  app ships no client bundle for its pages, and a control that silently does nothing without
+  hydration is worse than a plainer one. Its `returnTo` is restricted to same-origin paths and
+  rejects protocol-relative `//host` — an open redirect on an authenticated app is a phishing
+  primitive, and that value comes from a form field.
 Next.js App Router, server-rendered, with the design-token pass `09_UX...` Section 5 asks for
 done before any screen. Charts are chosen by the data's job — a meter for coverage, an
 ordinal-ramp funnel for pipeline stages, a length-comparable bar for match scores, a timeline
@@ -448,7 +474,15 @@ These are honest placeholders, not oversights:
   line in a container. That is not being on call, and it is the one remaining gap between
   this system and the 99.9% NFR.
 - **Infrastructure-as-code** — no Terraform, no deployed environment.
-- **Localization** — English only. The PRD requires English + Spanish at MVP.
+- **Localization of the admin app's screens** — **partially done, and the honest state is
+  "in progress" rather than "done".** The caregiver app is fully EN/ES. The admin app now has
+  the whole mechanism — dictionary, server-side locale resolution, language switcher, correct
+  `lang` attribute — and its shell, navigation, roles and sign-in are translated, but its ten
+  screens are not. `npm run i18n:check` in `apps/admin-web` counts what is left; it was 200
+  literals and is now 195. Until that reaches zero, an operator who selects Spanish gets a
+  Spanish frame around English pages, which is the state the i18n module's own docstring calls
+  worse than English-only. Finishing it is mechanical, not hard: the keys are designed and the
+  detector says exactly where.
 
 ## Compliance and security posture
 

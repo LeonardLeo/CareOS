@@ -86,6 +86,11 @@ npm run test:e2e      # browser end-to-end, including genuinely-offline clock-in
 ```
 
 ```bash
+cd apps/admin-web
+npm run i18n:check    # user-facing strings not going through the translator
+```
+
+```bash
 make check            # everything CI runs: lint, types, tests
 make test-isolation   # just the multi-tenant isolation suite
 make help             # all targets
