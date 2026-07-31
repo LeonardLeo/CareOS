@@ -8,7 +8,12 @@
 
 ## 1. Integration architecture principle
 
-All external integrations are built behind an internal adapter interface specific to the integration category (EVV, background check, job board, clearinghouse, payroll, EHR import). **Never let a vendor's specific API shape leak into core domain logic.** This is what allows CareOS to swap or add vendors (e.g., a new state's EVV aggregator) with a new adapter implementation rather than a core-logic change — see `03_Technical_Architecture.md`, Section 8.
+Every external integration sits behind an internal adapter interface for its category: EVV,
+background check, job board, clearinghouse, payroll, EHR import.
+
+A vendor's API shape does not reach core domain logic. That constraint is what makes adding a
+state's EVV aggregator, or swapping a vendor, a new adapter implementation rather than a change
+to core logic. See `03_Technical_Architecture.md` Section 8.
 
 ## 2. EVV Aggregators (Phase 1 — critical path)
 
@@ -85,4 +90,5 @@ All external integrations are built behind an internal adapter interface specifi
 | Clearinghouse | | | | | |
 | Payroll | | | | | |
 
-*Keep this table current in the team's project-tracking tool (Jira/Linear/etc.) as the source of truth once vendor selection begins — this document is the starting checklist, not the live status tracker.*
+Once vendor selection begins, the project-tracking tool holds the live status. This table is the
+starting checklist.

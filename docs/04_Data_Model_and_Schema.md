@@ -210,7 +210,8 @@ erDiagram
 ## 6. Reference (global, non-tenant) tables
 
 - `credential_type_ref` — standardized list of certifications/licenses relevant to home-based care, mapped to state-specific requirements where they differ.
-- `evv_aggregator_ref` — per-state mapping of which EVV aggregator/model applies (see `05_Integration_Specifications.md`).
+- `evv_aggregator_ref` — per-state mapping of which EVV aggregator or model applies (see
+  `07_Integration_Specifications.md`).
 - `payer_service_code_ref` — standardized billing/service type codes per payer type, used by both `scheduled_visit.service_type_code` and `claim_line`.
 
 ## 7. Audit log (cross-cutting, not tied to one module)
@@ -235,7 +236,11 @@ If picking this up mid-build, migrate in this order regardless of which phase's 
 2. `caregiver`, `credential`, `applicant_profile`
 3. `client`, `care_plan`
 4. `scheduled_visit`, `evv_record`
-5. Reference tables (`credential_type_ref`, `evv_aggregator_ref`, `payer_service_code_ref`) — even if Phase 3 isn't built, `payer_service_code_ref` should exist so `scheduled_visit.service_type_code` has a real foreign key, not a free-text placeholder.
-6. `audit_log` (before any other table goes live in production — this should never be "added later")
+5. Reference tables: `credential_type_ref`, `evv_aggregator_ref`, `payer_service_code_ref`.
+   `payer_service_code_ref` exists even before Phase 3 is built, so
+   `scheduled_visit.service_type_code` has a real foreign key rather than free text.
+6. `audit_log`, before any other table goes live in production. It is never added later.
 7. Phase 2 tables (`visit_note`, `ambient_session_metadata`) when Phase 2 work begins
-8. Phase 3 tables (`payer_contract`, `authorization`, `claim`, `claim_line`, `remittance`) when Phase 3 work begins — but the FK target columns referenced by earlier tables (e.g., `scheduled_visit.service_type_code`) should already exist.
+8. Phase 3 tables: `payer_contract`, `authorization`, `claim`, `claim_line`, `remittance`, when
+   Phase 3 work begins. The FK target columns referenced by earlier tables, such as
+   `scheduled_visit.service_type_code`, already exist by then.

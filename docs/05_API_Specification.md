@@ -8,11 +8,15 @@
 
 ## 1. Conventions
 
-- Base path: `https://api.careos.example/v1`
-- Auth: OAuth2 bearer tokens (short-lived access token + refresh token); every request scoped to a single `agency_id` derived from the token claims, never accepted as a client-supplied parameter for tenant-scoping decisions.
-- All list endpoints support `?page`, `?page_size`, and cursor-based pagination for large collections (e.g., visits, claims).
-- All timestamps are ISO 8601 UTC.
-- Errors follow a consistent envelope:
+| Convention | Rule |
+|---|---|
+| Base path | `https://api.careos.example/v1` |
+| Auth | OAuth2 bearer tokens: short-lived access token plus refresh token |
+| Tenant scoping | Every request is scoped to one `agency_id`, taken from the token claims. A client-supplied tenant identifier is never used for scoping decisions |
+| Pagination | List endpoints support `?page` and `?page_size`. Large collections such as visits and claims also support cursor pagination |
+| Timestamps | ISO 8601 UTC |
+
+Errors use one envelope:
 ```json
 {
   "error": {
@@ -22,7 +26,8 @@
   }
 }
 ```
-- Idempotency: all mutating endpoints that trigger external side effects (EVV transmission, claim submission, background-check initiation) require an `Idempotency-Key` header.
+Idempotency: mutating endpoints with external side effects require an `Idempotency-Key`
+header. Those are EVV transmission, claim submission, and background-check initiation.
 
 ## 2. Auth & Agency (Phase 1 foundation)
 
@@ -49,7 +54,7 @@
 | POST | `/caregivers/{id}/background-check` | Initiate background/exclusion-list/credential checks (async; see webhook section) |
 | GET | `/caregivers/{id}/credentials` | List credential status/expirations |
 
-**Example response — applicant ranking:**
+Example response, applicant ranking:
 ```json
 {
   "applicant_id": "a1b2c3",
@@ -77,7 +82,7 @@
 | GET | `/visits/{id}/evv-status` | Transmission status to the state aggregator |
 | POST | `/visits/{id}/gap-alert` | System/internal — triggered on no-show detection, fans out replacement offers |
 
-**Example — clock-in payload (offline-capable):**
+Example clock-in payload, offline-capable:
 ```json
 {
   "visit_id": "v123",
@@ -116,7 +121,9 @@
 | GET | `/reports/ar-aging` | AR aging report |
 | GET | `/reports/payer-mix` | Payer-mix profitability analytics |
 
-## 7. Webhooks (outbound, for async external processes)
+## 7. Webhooks
+
+Outbound, for async external processes.
 
 | Event | Payload summary |
 |---|---|
@@ -127,10 +134,20 @@
 
 ## 8. Versioning & deprecation policy
 
-- Breaking changes require a new version prefix (`/v2`); non-breaking additive changes ship within `/v1`.
-- Deprecated endpoints carry a `Sunset` HTTP header with a minimum 90-day notice before removal, given that agency operations depend on integration stability.
+| Change | Handling |
+|---|---|
+| Breaking | New version prefix (`/v2`) |
+| Additive, non-breaking | Ships within `/v1` |
+| Deprecation | `Sunset` HTTP header, minimum 90 days' notice before removal |
+
+The 90-day floor exists because agency operations depend on integration stability.
 
 ## 9. Rate limits
 
-- Default: 100 requests/minute per agency for standard endpoints.
-- EVV clock-in/out endpoints are exempt from standard rate limiting (never throttle a legally time-sensitive action) but are protected by abuse-detection heuristics instead (e.g., anomalous volume from a single device).
+| Endpoint class | Limit |
+|---|---|
+| Standard | 100 requests per minute per agency |
+| EVV clock-in and clock-out | Exempt from rate limiting |
+
+Clock-in and clock-out are legally time-sensitive and are never throttled. They are protected by
+abuse-detection heuristics instead, such as anomalous volume from a single device.

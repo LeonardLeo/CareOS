@@ -8,7 +8,8 @@
 
 ## 1. Phase gates and success thresholds
 
-These are the go/no-go thresholds from the market research and PRD — use them to judge whether to proceed, pause, or pivot at each stage, regardless of which team is executing.
+Go/no-go thresholds from the market research and the PRD. They decide whether to proceed, pause,
+or pivot at each stage, whichever team is executing.
 
 | Stage | Timeframe (from kickoff) | Deliverable | Threshold to proceed to next stage |
 |---|---|---|---|
@@ -59,9 +60,13 @@ These are the go/no-go thresholds from the market research and PRD — use them 
 
 ## 6. Budget/resourcing considerations (high-level; refine with finance)
 
-- **Vendor/integration costs** scale with the number of states served (each new state may mean a new EVV aggregator relationship, and Medicaid program-specific configuration) — factor state-expansion sequencing into the budget, not just headcount.
+- **Vendor and integration costs** scale with states served. Each new state can mean a new EVV
+  aggregator relationship and Medicaid program-specific configuration. Budget for
+  state-expansion sequencing, not only headcount.
 - **Compliance/legal spend** should be treated as a continuous line item (counsel review at every phase gate, per `06_Compliance_and_Regulatory_Requirements.md` Section 9), not a one-time setup cost.
-- **AI/ML inference costs** (hosted LLM API usage for ranking, ambient-doc extraction) scale with visit volume — model this explicitly before Phase 2 GA, since ambient documentation runs on every visit, unlike the lower-volume recruiting-ranking calls in Phase 1.
+- **AI/ML inference costs**, meaning hosted LLM usage for ranking and ambient-doc extraction,
+  scale with visit volume. Model this before Phase 2 GA. Ambient documentation runs on every
+  visit, unlike the lower-volume recruiting-ranking calls in Phase 1.
 
 ## 7. Risk register (top-level; see architecture and compliance docs for detail)
 
@@ -75,6 +80,9 @@ These are the go/no-go thresholds from the market research and PRD — use them 
 
 ## 8. How to use this document if you're a new team taking over mid-build
 
-1. Check which milestone (M0–M15) was most recently completed against the actual state of the codebase — do not assume the milestone table reflects reality; verify against `11_Engineering_Handoff_Guide.md`'s repo/status-check guidance.
-2. Confirm which Stage threshold metrics are currently being tracked and what the actual numbers are before deciding whether to proceed to the next stage — the thresholds in Section 1 are decision gates, not just historical targets.
+1. Check which milestone (M0–M15) was most recently completed against the actual state of the
+   codebase. The milestone table is not evidence. Verify against the repo and status-check
+   guidance in `12_Engineering_Handoff_Guide.md`.
+2. Confirm which Stage threshold metrics are tracked, and their current numbers, before deciding
+   to proceed to the next stage. The thresholds in Section 1 are decision gates.
 3. Re-validate the risk register against current market conditions (a competitor may have entered; regulations may have shifted) before continuing execution unchanged.
