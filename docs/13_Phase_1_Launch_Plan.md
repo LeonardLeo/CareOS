@@ -66,8 +66,8 @@ Nothing here is engineering-blocked. Everything here blocks something later.
 |---|---|---|---|
 | 5a | Compliance counsel | Prepare the review pack: this document set, the RLS and audit-log design, the data-flow diagram, the subprocessor list | Engage a healthcare-compliance attorney. Book the review. Expect weeks, not days |
 | 5b | Incident-response plan | Draft it against `08_Security_Architecture.md` Section 6: detection, triage, escalation, customer notification, post-incident review | Name the on-call owner and the notification decision-maker. Those are roles, not code |
-| 1a | Cloud account | Nothing yet | Open the account. Request the provider BAA — AWS and GCP both require one before PHI touches their services, and it is a form with a turnaround |
-| 3a | EVV sandbox | Nothing yet | Pick the launch state. Apply for aggregator sandbox credentials. Vendors gate these on a signed agreement; assume weeks |
+| 1a | Cloud account — **AWS**, decided | Terraform for both environments is written and in `infra/`. Nothing has been applied | Open the account. Request the AWS BAA — required before PHI touches any service, and it is a form with a turnaround. Create the state bucket, the lock table, and the deploy role |
+| 3a | EVV sandbox — **New York**, decided | Confirm the current NY aggregator assignment against DOH's published list. The reference row says HHAeXchange and is marked `UNVERIFIED`, which is where it stays until someone reads the source | Apply for aggregator sandbox credentials. Vendors gate these on a signed agreement; assume weeks |
 | 14a | Background-check vendor | Nothing yet | Choose a vendor with an OIG/GSA exclusion product and a BAA. Start procurement |
 | 6a | Design partner | Nothing yet | Sign the first agency. Everything in Phases 4 and 5 is calibrated on a real workforce |
 
@@ -83,15 +83,29 @@ weeks and the EVV vendor needs a signed agreement before they will issue sandbox
 The local compose file is the only thing that has run this system end to end. Everything after
 this phase assumes an environment.
 
-**Ours:**
+**Built** (`infra/`, and `infra/README.md` for how to run it):
 
-- Terraform for one staging and one production environment: VPC, managed Postgres with
-  encryption at rest, Redis in HA rather than a single node, container runtime, TLS termination,
-  secrets manager.
-- Deployment pipeline: build, migrate, roll. Migrations run in one place, not from two
-  containers racing.
-- The worker as its own service, scaled on replica count. It already takes an advisory lock per
-  (job, agency), so replicas divide tenants safely.
+- Terraform for staging and production on AWS. Three subnet tiers, with the database and cache
+  in a tier that has no route to a NAT gateway at all. RDS Postgres and ElastiCache Redis,
+  both encrypted at rest with a customer-managed key and refusing plaintext connections at the
+  server. Redis as a replication group rather than a single node, because the shared rate
+  limiter is a hard dependency in production. ECS Fargate, an ALB terminating TLS 1.2+, and
+  Secrets Manager — with the application secrets created empty and populated out of band, so a
+  `terraform apply` never holds the JWT signing key.
+- Migrations as their own ECS task that no service runs. The deploy pipeline runs it to
+  completion, then rolls. Two API containers racing `alembic upgrade head` is the specific
+  failure this shape prevents.
+- The worker as its own service. Per-(job, agency) advisory locks make replica count a
+  capacity decision.
+- Boot gates set as task environment: `CAREOS_MFA_REQUIRED`, `CAREOS_RATE_LIMIT_BACKEND=redis`,
+  a metrics token, and a non-loopback screening adapter. Production refuses to start without
+  them, so the failure is at deploy time rather than months later.
+- A CI job that formats, wiring-checks, and `terraform validate`s both environments — plus an
+  assertion that staging sets `evv_use_sandbox = true` and production sets it false. Runtime
+  guards catch production pointed at a sandbox; nothing catches staging pointed at a real
+  aggregator, and a transmission from staging is a real filing about a real visit.
+
+**Still ours:**
 - A smoke test that runs against a deployed environment and exercises the golden path: create an
   agency, invite a user, create a client and care plan, generate visits, clock in, clock out,
   confirm the EVV record reaches the loopback adapter.
@@ -104,9 +118,10 @@ this phase assumes an environment.
 to boot without them and that refusal should be observed once, deliberately, rather than
 discovered during a deploy.
 
-**Honest limit.** Terraform written here cannot be validated beyond `terraform validate`. There
-is no cloud account in this environment, so the first real `plan` will surface things a syntax
-check cannot. Budget a day for that.
+**Honest limit.** None of this has been applied to an AWS account. It is formatted,
+wiring-checked, and validated against real provider schemas in CI — and the first `terraform
+plan` against a live account will still surface things none of that can: a service quota, a
+name collision, an argument the schema accepts and the service rejects. Budget a day.
 
 **Exit criteria:** staging reachable over TLS, smoke test green, one deliberate rollback
 rehearsed.

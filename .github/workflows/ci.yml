@@ -282,6 +282,49 @@ jobs:
             fi
           done
 
+  infrastructure:
+    name: Terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: Formatting
+        run: terraform fmt -recursive -check -diff infra
+      - name: Module inputs and outputs agree
+        # Runs without provider schemas, so it works in an environment that cannot reach
+        # registry.terraform.io. `terraform validate` below is stricter and needs the network;
+        # this is what makes the same check available to a developer who has neither.
+        run: python3 scripts/check_terraform_wiring.py
+      - name: Validate each environment
+        # `-backend=false` so validation needs no AWS credentials and no state bucket. It
+        # still loads the provider schemas, which is what catches a misspelled argument or an
+        # attribute that does not exist on a resource.
+        run: |
+          set -euo pipefail
+          for env in infra/envs/*/; do
+            echo "::group::$env"
+            terraform -chdir="$env" init -backend=false -input=false -no-color
+            terraform -chdir="$env" validate -no-color
+            echo "::endgroup::"
+          done
+      - name: Production never points at a live aggregator by accident
+        # `careos.config.validate_settings` refuses to boot production with
+        # CAREOS_EVV_USE_SANDBOX true, and refuses staging nothing — so the inverse mistake,
+        # staging transmitting to a real state aggregator, has no runtime guard at all. This
+        # is that guard. A transmission from staging is a real filing about a real visit.
+        run: |
+          set -euo pipefail
+          if ! grep -q 'evv_use_sandbox       = true' infra/envs/staging/main.tf; then
+            echo "::error::staging must set evv_use_sandbox = true"
+            exit 1
+          fi
+          if ! grep -q 'evv_use_sandbox       = false' infra/envs/production/main.tf; then
+            echo "::error::production must set evv_use_sandbox = false"
+            exit 1
+          fi
+
   security-scan:
     name: Dependency and secret scan
     runs-on: ubuntu-latest
@@ -344,6 +387,28 @@ jobs:
       - name: Build
         working-directory: apps/admin-web
         run: npm run build
+
+  site:
+    name: Public site
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/site/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Static export builds
+        run: npm run build
+      - name: The export is actually static
+        # `output: "export"` fails loudly on a server-only feature, but a page that quietly
+        # stops being exportable would only be discovered at deploy. This asserts the artefact.
+        run: test -f out/index.html
 
   caregiver-app:
     name: Caregiver app (offline EVV)

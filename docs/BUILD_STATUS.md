@@ -341,6 +341,19 @@ test could — the runner registered only the models it names, so a webhook deli
 to `agency` would have raised `NoReferencedTableError` on the first write in a deployment. Fixed
 by importing the model registry, pinned by a subprocess test.
 
+### Public site
+
+`apps/site` — a static Next.js export, its own app rather than a route in the admin console.
+No session, no API call, nothing personalised, so it needs no server: it is a directory of
+files that stays up when the API does not, which matters because a marketing page that goes
+down with the product cannot tell anyone the product is down. No font CDN, no icon library,
+no analytics — a page with no third-party requests loads on a bad connection and leaks
+nothing about who visited.
+
+Every figure on it carries its source in the markup, and it claims nothing about customers or
+results, because there are none. The one illustration is the product's own coverage board with
+the unfilled shifts in red, which is the same argument the console makes to a scheduler.
+
 ### Schema
 
 All tables from `04_Data_Model_and_Schema.md` exist, in the documented migration order,
@@ -432,7 +445,7 @@ and verified. Everything below is a decision, a credential, or a signature.
 
 | # | Item | What it needs |
 |---|---|---|
-| 1 | **Deploy the stack, with infrastructure as code** | There is no Terraform and no deployed environment; the compose file is the only thing that has run the system end to end. Needs a cloud account, managed Postgres with encryption at rest, an HA Redis, TLS termination. The worker is already a separate container and scales on replica count |
+| 1 | **Deploy the stack** | Terraform for AWS staging and production is written (`infra/`) and validated in CI; nothing has been applied. Needs an AWS account with a signed BAA, the state bucket and lock table, a validated ACM certificate, and the `careos_app` / `careos_auth` roles created against the fresh instance. The first real `plan` is where quotas and name collisions surface |
 | 2 | **Provision the identity provider** | `08_Security_Architecture.md` Section 1 calls for managed OIDC. The local password path exists so the system runs before that, and `app_user.auth_provider_id` is the seam. MFA moves to the provider with the rest of authentication. Do not build further onto the local path |
 | 3 | **First real EVV integration, one state, through the vendor's sandbox** | The assumption most likely to be wrong and the cheapest to test. Adapter layer, field maps, and transmission worker are built; the field maps are provisional and the state assignments are `UNVERIFIED`. A wrong map surfaces as a rejected claim months later, not as a test failure |
 | 4 | **Wire the pager to a real destination** | Rules, routing, inhibitions, and local delivery are tested end to end. The receivers are placeholders. A PagerDuty routing key or a Slack webhook makes this a config change. Until then nothing meets the 99.9% NFR |
