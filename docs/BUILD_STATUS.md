@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 276 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
+| Tests | 277 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **Admin web app and caregiver app both built and working.** Caregiver app is an installable PWA, not React Native — see below |
 | Compliance review | **Not performed** |
@@ -444,6 +444,20 @@ entirely. The caregiver app saw a network error rather than a 429, and could not
 
 Fixed by registering CORS last, which puts it outermost. Pinned by a test that asserts on the
 *refusal* rather than on a 200 — the 200 path was never broken and would have kept passing.
+
+**And the same ordering was quietly defeating the clock-in exemption.** A cross-origin POST
+carrying `Authorization` and `Idempotency-Key` is preceded by an `OPTIONS` preflight. That
+preflight matches no declared route method, so it resolved to the standard tier — and once an
+agency's budget was spent it came back 429. A browser that cannot complete a preflight never
+sends the request at all, so Section 9's one hard rule was defeatable through its own preflight
+for every browser client, and the caregiver app is one. The endpoint was exempt; the permission
+to call it was not.
+
+With CORS outermost, preflights are answered before the limiter runs. Verified both ways
+against the two revisions rather than reasoned about: 429 before, 200 after. A first attempt to
+check this compared a revision against itself — the working tree was already clean — and
+reported no difference, which is worth recording as the reason the comparison is now pinned in
+a test rather than done by hand.
 
 ## Suggested next steps
 

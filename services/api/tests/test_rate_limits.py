@@ -376,6 +376,38 @@ async def test_clock_in_is_never_throttled(client, tenant_a: TenantFixture, tigh
     assert clock_in.status_code != 429, clock_in.text
 
 
+async def test_the_clock_in_preflight_is_not_throttled_either(client, tight_limits) -> None:
+    """Exempting the clock-in is worth nothing if a browser cannot ask permission to send it.
+
+    A cross-origin POST carrying `Authorization` and `Idempotency-Key` is preceded by an
+    `OPTIONS` preflight, and a browser that gets a 429 there never sends the clock-in at all.
+    The preflight matches no declared route method, so it resolved to the standard tier and was
+    refused along with everything else once an agency's budget was spent — which defeated
+    Section 9's one hard rule for every browser client, and the caregiver app is one.
+
+    It passes now because `CORSMiddleware` sits outermost and answers preflights before the
+    limiter runs. That is load-bearing, not incidental, so it is asserted here rather than left
+    to the middleware registration order looking tidy. Verified against the previous ordering:
+    this returned 429.
+    """
+    tight_limits(standard=1)
+    for _ in range(3):
+        await client.get("/v1/clients")  # spend the address's allowance
+
+    preflight = await client.options(
+        f"/v1/visits/{uuid.uuid4()}/clock-in",
+        headers={
+            "Origin": "http://localhost:3001",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "authorization,content-type,idempotency-key",
+        },
+    )
+    assert preflight.status_code != 429, (
+        "the clock-in preflight was throttled, so a browser can never send the clock-in that "
+        "Section 9 exempts"
+    )
+
+
 async def test_health_is_never_throttled(client, tight_limits) -> None:
     """A throttled health check removes a healthy instance from rotation under load."""
     tight_limits(standard=1)
