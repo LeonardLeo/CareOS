@@ -424,12 +424,9 @@ vendor and `claim.status_changed` is Phase 3. They are in the enum anyway — th
 published, a receiver may reasonably subscribe in advance, and adding them later would be a
 migration.
 
-**Nothing schedules these workers yet.** `webhook_delivery.drain_agency`,
-`credential_expiry.announce_expiring_credentials`, and the EVV transmission worker are library
-functions with tests, not a running process — there is no scheduler, cron entry, or queue
-consumer in this repository. Until one exists, a deployment queues webhooks and delivers none of
-them. That is a deployment gap rather than a code gap, but it is the difference between this
-working and not.
+Delivery is driven by `careos.workers.runner` — see *Background workers* below. Until that
+existed, everything in this section described code that ran only in tests: the queue was
+written correctly and nothing consumed it.
 
 ## Background workers
 
