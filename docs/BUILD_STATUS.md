@@ -173,6 +173,45 @@ suppress the others.
   group size so an underpowered sample reports `insufficient_data`. Demographic labels come from
   separately-held voluntary data; nothing in the schema stores an applicant's race or sex.
 
+**Ranking shadow period.** `agency.ranking_display_enabled` defaults to false. While it is off
+the scorer runs and persists — the audit needs those rows — and the API returns a null score, no
+factors, no model version, and the applicant list in the order people applied. Ordering is part
+of what is withheld, because the top of a list is a recommendation whether or not it carries a
+number. Every ranking run records `ranking_displayed` in its audit row, so the shadow period is
+evidenced when it happens rather than asserted later from a config value. The one endpoint that
+ends it is owner/admin only and refuses unless a passing `ai_hiring_bias_audit` review is on
+file; `inconclusive` does not count, since the usual reason an audit is inconclusive is a sample
+too small to say anything. There is no endpoint to turn it back off.
+
+### Background screening
+
+`careos.integrations.screening`, built because `assert_assignable` gates publicly-funded
+assignment on `exclusion_check_status` and nothing set that except an administrator checking the
+OIG and GSA sites by hand — workable for twenty caregivers, not beyond.
+
+- **Fails closed everywhere.** The registry raises rather than defaulting; the status mapping
+  raises on any vendor status not explicitly mapped; a pending, unreadable, or unreachable result
+  leaves the caregiver where they were. Nothing writes `cleared` except a vendor verdict of
+  `clear`. The loopback adapter is refused outside local and test, and production will not boot
+  configured to use it.
+- **Async by construction.** Order returns 202 and clears nobody. A second order while one is
+  outstanding is refused — these are billed per search and touch a real person's records.
+- **Two worker jobs.** Verdict polling every five minutes; re-screens ordered daily against
+  `exclusion_checked_at`, exclusion-list only, because a monthly full criminal-history bundle on
+  every caregiver is not what the recurring obligation asks for.
+- **A flagged caregiver with future visits raises a critical compliance exception** and keeps
+  their visits. New assignments are already blocked by the gate; silently emptying five slots
+  would leave five clients with nobody arriving and no record of why.
+- Produces `background_check.completed`, which was in the published webhook contract with no
+  producer. The payload carries a verdict, not the match detail — that is adjudication material
+  for the employment decision-maker, not for a third party's inbox.
+
+Verified by running it, and that run caught a defect the tests could not: the loopback adapter
+kept its orders in instance memory, so the worker process — a different instance from the API
+that placed the order — logged `No such loopback screening request` and could never have
+resolved anything. A real vendor adapter holds no such state. The fake now encodes the verdict
+in the request id and is stateless, pinned by a test that fetches from a second instance.
+
 ### Shift matching and gap-fill
 
 - Suggestions reuse `assert_assignable`, so a caregiver who would be refused at assignment is
@@ -278,9 +317,10 @@ daily job re-announces every expiring credential every day.
 
 `python -m careos.workers.runner`, its own container in the local stack. This closed the largest
 gap in the system: EVV transmission, webhook delivery, and the credential-expiry announcer were
-written, tested, and green in CI while nothing called any of them.
+written, tested, and green in CI while nothing called any of them. Screening polling and
+re-screening joined later, for five jobs.
 
-- **No broker.** Three coroutines taking an `agency_id`. What was missing was a loop, a clock,
+- **No broker.** Five coroutines taking an `agency_id`. What was missing was a loop, a clock,
   and a way not to do the work twice. The durable queue is already in Postgres.
 - **Advisory lock per (job, agency).** Replicas divide the tenants; no two work the same agency
   at once. `SKIP LOCKED` stops duplicate sends. The lock is what makes the read-then-write
@@ -397,7 +437,7 @@ and verified. Everything below is a decision, a credential, or a signature.
 | 3 | **First real EVV integration, one state, through the vendor's sandbox** | The assumption most likely to be wrong and the cheapest to test. Adapter layer, field maps, and transmission worker are built; the field maps are provisional and the state assignments are `UNVERIFIED`. A wrong map surfaces as a rejected claim months later, not as a test failure |
 | 4 | **Wire the pager to a real destination** | Rules, routing, inhibitions, and local delivery are tested end to end. The receivers are placeholders. A PagerDuty routing key or a Slack webhook makes this a config change. Until then nothing meets the 99.9% NFR |
 | 5 | **Compliance counsel review, incident-response plan, BAAs** | `06_Compliance_and_Regulatory_Requirements.md` Section 9 requires the first before Phase 1 launch. The second is unwritten. The third is not yet needed only because no PHI-touching vendor is integrated, which changes the moment item 3 happens |
-| 6 | **Run the bias audit on real outcomes** | Before the ranking model influences a hire. The tooling exists and can gate a release; it has never run on real data because there is none. Needs demographic labels held separately and employment-counsel review |
+| 6 | **Run the bias audit on real outcomes** | Before the ranking model influences a hire. The shadow period that makes this possible is built — `agency.ranking_display_enabled` defaults to false, the scorer runs and persists, and no score, factor, or model-derived ordering reaches a screen until a passing `ai_hiring_bias_audit` is on file. What is missing is a first cohort, voluntary demographic labels held separately, and employment-counsel review |
 
 ### Highest-value engineering
 
@@ -410,7 +450,7 @@ and verified. Everything below is a decision, a credential, or a signature.
 | 11 | **A QR code on the MFA enrolment screen** | The secret and `otpauth://` URI are text, which every authenticator accepts. Typing a 32-character secret into a phone is where people give up |
 | 12 | **Extend MFA to schedulers** | `08_Security_Architecture.md` Section 1 asks for it next. One line in `MFA_ELIGIBLE_ROLES` and one in `MFA_REQUIRED_ROLES`. Caregivers stay excluded until the caregiver app can ask for a code |
 | 13 | **A real routing provider** | `RoutingAdapter` and its registry exist; only the haversine approximation is implemented. Adequate for ranking candidates against each other, not for quoting travel time or paying it on a timesheet |
-| 14 | **Job-board and background-check integrations** | Behind the adapter interfaces `07_Integration_Specifications.md` Section 1 requires. Background check gates whether a caregiver can be scheduled on publicly-funded work at all |
+| 14 | **Job-board integration, and a background-check vendor** | Behind the adapter interfaces `07_Integration_Specifications.md` Section 1 requires. Screening is no longer manual-only: `careos.integrations.screening` has the interface, a registry that raises rather than defaulting, async result handling, a re-screening job, and a flagged-while-scheduled compliance exception. What is left is one adapter class for a chosen vendor, a contract, and a BAA |
 
 ### Deliberately not next
 

@@ -73,6 +73,7 @@ def test_production_refuses_an_unauthenticated_metrics_endpoint() -> None:
         # Set so this test exercises the metrics gate rather than tripping over the MFA one:
         # `validate_settings` raises on the first unmet requirement, whichever that is.
         mfa_required=True,
+        screening_adapter="vendor",
     )
     with pytest.raises(RuntimeError, match="CAREOS_METRICS_TOKEN"):
         validate_settings(settings)

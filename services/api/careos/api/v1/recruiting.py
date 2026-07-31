@@ -70,7 +70,10 @@ async def create_applicant(
         geo_lat=payload.geo_lat,
         geo_lng=payload.geo_lng,
     )
-    return schemas.ApplicantOut.model_validate(applicant)
+    return schemas.ApplicantOut.from_applicant(
+        applicant,
+        display_ranking=await recruiting.ranking_display_enabled(session, principal.agency_id),
+    )
 
 
 @router.get("/job-postings/{job_posting_id}/applicants", response_model=list[schemas.ApplicantOut])
@@ -84,28 +87,43 @@ async def list_applicants_for_posting(
         "not write new ranking rows.",
     ),
 ) -> list[schemas.ApplicantOut]:
-    """Applicants with AI ranking scores and their explanatory factors (US-1.2.2)."""
+    """Applicants with AI ranking scores and their explanatory factors (US-1.2.2).
+
+    While the agency is in its ranking shadow period the scores are computed and withheld:
+    the fields come back null, `ranking_displayed` is false, and the order is the order
+    people applied in. See `13_Phase_1_Launch_Plan.md` 6.3 for why that is the resolution to
+    "audit before the model influences a hire".
+    """
     if await session.get(JobPosting, job_posting_id) is None:
         raise NotFoundError("Job posting not found")
+
+    display = await recruiting.ranking_display_enabled(session, principal.agency_id)
 
     if rank:
         ranked = await recruiting.rank_applicants(
             session, principal=principal, job_posting_id=job_posting_id
         )
-        return [schemas.ApplicantOut.model_validate(a) for a in ranked]
+        return [schemas.ApplicantOut.from_applicant(a, display_ranking=display) for a in ranked]
 
+    # Ordering is part of what a shadow period withholds. Sorting by score and blanking the
+    # numbers would still put the model's favourite at the top of the screen.
+    order = (
+        ApplicantProfile.ranking_score.desc().nullslast()
+        if display
+        else ApplicantProfile.created_at.asc()
+    )
     rows = (
         (
             await session.execute(
                 select(ApplicantProfile)
                 .where(ApplicantProfile.job_posting_id == job_posting_id)
-                .order_by(ApplicantProfile.ranking_score.desc().nullslast())
+                .order_by(order)
             )
         )
         .scalars()
         .all()
     )
-    return [schemas.ApplicantOut.model_validate(a) for a in rows]
+    return [schemas.ApplicantOut.from_applicant(a, display_ranking=display) for a in rows]
 
 
 @router.post("/applicants/{applicant_id}/stage", response_model=schemas.ApplicantOut)
@@ -124,7 +142,10 @@ async def change_stage(
         applicant=applicant,
         to_stage=PipelineStage(payload.stage),
     )
-    return schemas.ApplicantOut.model_validate(updated)
+    return schemas.ApplicantOut.from_applicant(
+        updated,
+        display_ranking=await recruiting.ranking_display_enabled(session, principal.agency_id),
+    )
 
 
 @router.post(
@@ -161,3 +182,31 @@ async def funnel(
         )
         for s in stages
     ]
+
+
+@router.post("/agencies/{agency_id}/ranking-display", response_model=schemas.RankingDisplayOut)
+async def enable_ranking_display(
+    agency_id: uuid.UUID,
+    principal: Principal = Depends(requires(Role.owner_admin)),
+    session: AsyncSession = Depends(db_session),
+) -> schemas.RankingDisplayOut:
+    """End this agency's ranking shadow period.
+
+    One-way. There is no endpoint to turn display back off, and that is deliberate: the flag
+    is not a preference, it is a record of the point at which an audited model was allowed to
+    influence hiring. Turning it off again would be an attempt to un-show something people
+    have already seen, and would leave the audit trail claiming a shadow period that was not
+    one. An agency that needs ranking withdrawn has a product problem, not a toggle.
+
+    Refuses unless a passing `ai_hiring_bias_audit` review is on file
+    (`06_Compliance_and_Regulatory_Requirements.md` Section 9).
+    """
+    if agency_id != principal.agency_id:
+        raise NotFoundError("Agency not found")
+
+    agency = await recruiting.enable_ranking_display(session, principal=principal)
+    return schemas.RankingDisplayOut(
+        agency_id=agency.id,
+        ranking_display_enabled=agency.ranking_display_enabled,
+        enabled_at=agency.ranking_display_enabled_at,
+    )

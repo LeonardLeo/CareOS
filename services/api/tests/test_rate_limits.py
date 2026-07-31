@@ -534,6 +534,7 @@ def _production_settings(**overrides):
         # failure names the guard this file is about. `validate_settings` raises on the first
         # unmet one, so an incomplete config would make these pass for the wrong reason.
         mfa_required=True,
+        screening_adapter="vendor",
         **overrides,
     )
 

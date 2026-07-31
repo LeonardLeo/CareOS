@@ -9,7 +9,16 @@
  */
 
 import { Funnel, ScoreBar } from "@/components/charts";
-import { Card, EmptyState, ErrorNote, FactorList, SeverityBadge, Table, formatDate } from "@/components/ui";
+import {
+  Card,
+  EmptyState,
+  ErrorNote,
+  FactorList,
+  InfoNote,
+  SeverityBadge,
+  Table,
+  formatDate,
+} from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
 import { translatorFor } from "@/lib/i18n";
 import { getLocale } from "@/lib/locale";
@@ -104,8 +113,20 @@ export default async function RecruitingPage({
         {selected && (
           <Card
             title={t("applicantsFor", { posting: selected.title })}
-            subtitle={t("rankingSubtitle")}
+            // The default subtitle promises a ranking. Printing it directly above a banner
+            // saying the ranking is withheld puts two contradictory claims on one card.
+            subtitle={
+              applicants.some((a) => !a.ranking_displayed)
+                ? t("rankingShadowSubtitle")
+                : t("rankingSubtitle")
+            }
           >
+            {/* Says why the scores are missing. Without it the rows below read as "nobody has
+                been scored yet", which is the opposite of what is happening and invites
+                someone to go looking for the button that starts the scoring. */}
+            {applicants.some((a) => !a.ranking_displayed) && (
+              <InfoNote title={t("rankingShadowTitle")} detail={t("rankingShadowBody")} />
+            )}
             {applicants.length === 0 ? (
               <EmptyState title={t("noApplicantsForPosting")} />
             ) : (
@@ -114,7 +135,12 @@ export default async function RecruitingPage({
                   <div className="suggestion__head">
                     <span className="suggestion__name">{applicant.full_name}</span>
                     {applicant.ranking_score === null ? (
-                      <span className="muted small">{t("notRanked")}</span>
+                      // Only when ranking is on: during a shadow period the banner above has
+                      // already explained the absence, and repeating "Not ranked" on every row
+                      // states something untrue — they were ranked, it is being withheld.
+                      applicant.ranking_displayed ? (
+                        <span className="muted small">{t("notRanked")}</span>
+                      ) : null
                     ) : (
                       <ScoreBar
                         score={applicant.ranking_score}

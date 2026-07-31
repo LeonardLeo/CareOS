@@ -93,6 +93,25 @@ export function ErrorNote({ title, detail }: { title: string; detail?: string })
 }
 
 /**
+ * A standing condition the reader needs to know about, which is neither an error nor a
+ * success. Styled apart from `ErrorNote` on purpose: a shadow period is the system working
+ * as designed, and dressing it in the colour of a failure would train people to dismiss it.
+ */
+export function InfoNote({ title, detail }: { title: string; detail?: string }) {
+  return (
+    <div className="info-note" role="note">
+      <span className="info-note__icon" aria-hidden="true">
+        i
+      </span>
+      <div>
+        <p className="info-note__title">{title}</p>
+        {detail && <p className="info-note__detail">{detail}</p>}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Inline reasoning for an AI suggestion.
  *
  * `09_UX...` principle 4: an AI-generated score is never shown as an unexplained number.

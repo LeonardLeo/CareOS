@@ -17,8 +17,10 @@ from careos.core.crypto import encrypt_field
 from careos.core.errors import NotFoundError
 from careos.core.rbac import requires
 from careos.core.security import Principal
+from careos.integrations.screening.base import DEFAULT_ONBOARDING_CHECKS, ScreeningCheck
 from careos.modules.agency import service as agency_service
 from careos.modules.agency.models import AppUser, Role
+from careos.modules.credentialing import screening
 from careos.modules.credentialing import service as credentialing
 from careos.modules.credentialing.models import (
     Caregiver,
@@ -315,3 +317,90 @@ async def terminate_caregiver(
         },
     )
     return schemas.CaregiverOut.model_validate(caregiver)
+
+
+@router.post(
+    "/caregivers/{caregiver_id}/screenings",
+    response_model=schemas.ScreeningRequestOut,
+    status_code=202,
+)
+async def order_caregiver_screening(
+    caregiver_id: uuid.UUID,
+    payload: schemas.ScreeningOrderRequest,
+    principal: Principal = Depends(requires(Role.owner_admin)),
+    session: AsyncSession = Depends(db_session),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> schemas.ScreeningRequestOut:
+    """Order a background check from the configured vendor (US-1.3.2).
+
+    202, not 201: the vendor has accepted a search, and nobody knows the answer yet. A 200
+    with a caregiver body would imply the exclusion status had been decided, and code that
+    reads it that way is the failure this status code is chosen to prevent.
+
+    Owner/admin only, and idempotent, because each call discloses a caregiver's identity to a
+    subprocessor and is billed for.
+    """
+    outcome = await idempotency.claim(
+        session,
+        principal=principal,
+        key=idempotency_key,
+        endpoint="caregivers.order_screening",
+        payload={"caregiver_id": str(caregiver_id), **payload.model_dump(mode="json")},
+    )
+    if outcome.is_replay:
+        return schemas.ScreeningRequestOut.model_validate(outcome.replayed_body)
+
+    checks = (
+        tuple(ScreeningCheck(c) for c in payload.checks)
+        if payload.checks
+        else DEFAULT_ONBOARDING_CHECKS
+    )
+    request = await screening.order_screening(
+        session,
+        agency_id=principal.agency_id,
+        caregiver_id=caregiver_id,
+        checks=checks,
+        principal=principal,
+    )
+
+    body = schemas.ScreeningRequestOut.model_validate(request)
+    assert outcome.record is not None
+    await idempotency.complete(
+        session, outcome.record, status=202, body=body.model_dump(mode="json")
+    )
+    return body
+
+
+@router.get(
+    "/caregivers/{caregiver_id}/screenings",
+    response_model=list[schemas.ScreeningRequestOut],
+)
+async def list_caregiver_screenings(
+    caregiver_id: uuid.UUID,
+    principal: Principal = Depends(
+        requires(Role.owner_admin, Role.clinical_supervisor, Role.auditor)
+    ),
+    session: AsyncSession = Depends(db_session),
+) -> list[schemas.ScreeningRequestOut]:
+    """Every screening ordered for this caregiver, newest first.
+
+    Not open to schedulers. A scheduler needs to know whether someone is assignable, which
+    `exclusion_check_status` already answers; the match detail behind a flag is adjudication
+    material and carries criminal-history information that fair-hiring practice keeps to the
+    people making the employment decision.
+    """
+    if await session.get(Caregiver, caregiver_id) is None:
+        raise NotFoundError("Caregiver not found")
+
+    rows = (
+        (
+            await session.execute(
+                select(ScreeningRequest)
+                .where(ScreeningRequest.caregiver_id == caregiver_id)
+                .order_by(ScreeningRequest.created_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [schemas.ScreeningRequestOut.model_validate(r) for r in rows]

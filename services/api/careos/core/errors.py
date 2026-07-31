@@ -147,6 +147,19 @@ class EVVTransmissionError(CareOSError):
     code = "EVV_TRANSMISSION_FAILED"
 
 
+class ScreeningUnavailableError(CareOSError):
+    """No usable background-check adapter, or the vendor could not be reached.
+
+    502 rather than 500: the failure is a dependency's, and the caller can retry. Kept
+    separate from `ComplianceGateError` because they mean opposite things to an
+    administrator — a gate failure says the caregiver may not be assigned, this says nothing
+    is known yet. Conflating them would present "we could not ask" as "the answer was no".
+    """
+
+    status_code = 502
+    code = "SCREENING_UNAVAILABLE"
+
+
 class CommitFailedError(CareOSError):
     """The request's work could not be made durable.
 

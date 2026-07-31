@@ -158,10 +158,21 @@ async def test_stopping_ends_the_loop_without_waiting_out_the_interval(
     )
 
 
-async def test_the_default_jobs_are_the_three_that_exist() -> None:
-    """A worker written but not wired into the runner is the defect this file exists for."""
+async def test_the_default_jobs_are_the_ones_that_exist() -> None:
+    """A worker written but not wired into the runner is the defect this file exists for.
+
+    An equality assertion rather than a subset one, in both directions: a job added to
+    `careos.workers` and never registered here does nothing in a deployment, and a job
+    registered here whose module was deleted crashes the runner on the first tick.
+    """
     names = {job.name for job in runner.default_jobs()}
-    assert names == {"evv_transmission", "webhook_delivery", "credential_expiry"}
+    assert names == {
+        "evv_transmission",
+        "webhook_delivery",
+        "credential_expiry",
+        "screening_poll",
+        "screening_rescreen",
+    }
     assert all(job.interval_seconds > 0 for job in runner.default_jobs())
 
 

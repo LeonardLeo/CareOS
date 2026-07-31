@@ -11,6 +11,8 @@ from sqlalchemy import select
 from careos.core.errors import ConflictError
 from careos.db.session import tenant_session
 from careos.modules.agency.models import Role
+from careos.modules.audit import compliance_log
+from careos.modules.audit.compliance_log_models import ReviewOutcome, ReviewType
 from careos.modules.credentialing import service as credentialing
 from careos.modules.credentialing.models import (
     Caregiver,
@@ -61,6 +63,28 @@ async def test_applicant_pipeline_end_to_end(client, tenant_a: TenantFixture) ->
     assert applicant.status_code == 201, applicant.text
     applicant_id = applicant.json()["id"]
     assert applicant.json()["pipeline_stage"] == "applied"
+
+    # Scores are computed but withheld until the agency leaves its ranking shadow period
+    # (`13_Phase_1_Launch_Plan.md` 6.3), so this walks the real route out of it: record the
+    # bias audit, then enable display. Asserting on scores without this would be asserting on
+    # a state no agency reaches by default.
+    withheld = await client.get(f"/v1/job-postings/{posting_id}/applicants", headers=headers)
+    assert withheld.json()[0]["ranking_displayed"] is False
+    assert withheld.json()[0]["ranking_score"] is None
+
+    async with tenant_session(tenant_a.agency_id) as session:
+        await compliance_log.record_review(
+            session,
+            principal=tenant_a.principal(),
+            agency_id=tenant_a.agency_id,
+            review_type=ReviewType.ai_hiring_bias_audit,
+            outcome=ReviewOutcome.passed,
+            performed_by="Employment counsel",
+        )
+    enabled = await client.post(
+        f"/v1/agencies/{tenant_a.agency_id}/ranking-display", headers=headers
+    )
+    assert enabled.status_code == 200, enabled.text
 
     ranked = await client.get(f"/v1/job-postings/{posting_id}/applicants", headers=headers)
     assert ranked.status_code == 200

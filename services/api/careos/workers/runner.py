@@ -44,7 +44,12 @@ from careos.core import metrics
 from careos.db import models as _all_models  # noqa: F401  (registers every mapper; see below)
 from careos.db.session import advisory_job_lock, dispose_engines, privileged_session
 from careos.modules.agency.models import Agency
-from careos.workers import credential_expiry, evv_transmission, webhook_delivery
+from careos.workers import (
+    credential_expiry,
+    evv_transmission,
+    screening,
+    webhook_delivery,
+)
 
 # `careos.db.models` is imported for its side effect, exactly as `careos.main` does it. The
 # jobs write rows whose foreign keys point at tables this module never names — a webhook
@@ -174,7 +179,7 @@ async def run_tick(jobs: list[Job], *, stop: asyncio.Event | None = None) -> Tic
 
 
 def default_jobs() -> list[Job]:
-    """The three jobs, with the cadence each one's failure mode argues for.
+    """The five jobs, with the cadence each one's failure mode argues for.
 
     EVV transmission is the tightest: `06_Compliance_and_Regulatory_Requirements.md` treats
     late transmission as a compliance problem, and the adapter has its own backoff, so polling
@@ -187,6 +192,13 @@ def default_jobs() -> list[Job]:
     `dedupe_on` key means a second run queues nothing — and that safety is what lets the
     schedule live in process memory rather than in a table. A restarting container re-runs it
     and no receiver notices.
+
+    Screening splits into two because its halves share nothing but a vendor. Polling for
+    verdicts runs every few minutes — a caregiver whose check cleared at 09:00 should be
+    assignable before lunch — and its failure leaves a new hire unable to take publicly-funded
+    work. Ordering re-screens is a daily calendar job, and its failure leaves an existing
+    caregiver working against a clearance that has gone stale. One interval could not serve
+    both.
     """
     settings = get_settings()
     return [
@@ -204,6 +216,16 @@ def default_jobs() -> list[Job]:
             name="credential_expiry",
             interval_seconds=settings.worker_credential_interval_seconds,
             run=credential_expiry.announce_expiring_credentials,
+        ),
+        Job(
+            name="screening_poll",
+            interval_seconds=settings.worker_screening_poll_interval_seconds,
+            run=screening.poll_screening_results,
+        ),
+        Job(
+            name="screening_rescreen",
+            interval_seconds=settings.worker_screening_rescreen_interval_seconds,
+            run=screening.order_screening_rescreens,
         ),
     ]
 

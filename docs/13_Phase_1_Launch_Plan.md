@@ -39,15 +39,22 @@ the model influencing hires" are in direct conflict.
 The resolution is a shadow period. The scorer runs and logs, and the admin app does not display
 its output, for the first cohort of hires. That produces outcomes with no adverse-impact risk,
 because nothing the model said reached a decision-maker. The audit then runs on real data before
-ranking is switched on. This needs a display flag the codebase does not currently have; it is
-Phase 4 work below.
+ranking is switched on.
+
+The flag this needs now exists — `agency.ranking_display_enabled`, defaulting to false. What
+remains in Phase 4 is the part only a real agency can supply: a first cohort, voluntary
+demographic labels held separately, and a counsel review of the audit output.
 
 **Item 14 (background-check integration) is listed last and is a hard blocker for most
 agencies.** `assert_assignable` refuses a caregiver for publicly-funded work unless
-`exclusion_check_status` is `cleared`, and today nothing sets that except an administrator
-calling the endpoint by hand after checking the OIG and GSA sites themselves. That is workable
-for a design partner with twenty caregivers and not workable at all beyond it. It moves up to
-Phase 3.
+`exclusion_check_status` is `cleared`, and before this the only thing that set it was an
+administrator calling the endpoint by hand after checking the OIG and GSA sites themselves.
+That is workable for a design partner with twenty caregivers and not workable at all beyond it.
+It moves up to Phase 3.
+
+The adapter layer, the async lifecycle, the re-screening job, and the flagged-while-scheduled
+exception are now built against a loopback vendor. What remains is the vendor: a contract, a
+BAA, and one adapter class behind the interface.
 
 The other eleven items stay in relative order.
 
@@ -171,20 +178,27 @@ reconciliation running.
 
 ### 5.2 Background check and exclusion screening (item 14)
 
-`assert_assignable` already refuses a caregiver for publicly-funded work unless
-`exclusion_check_status` is `cleared`. Nothing sets it except a manual endpoint.
+`assert_assignable` refuses a caregiver for publicly-funded work unless
+`exclusion_check_status` is `cleared`. The machinery that sets it now exists; the vendor does
+not.
 
-**Ours:**
+**Built:**
 
-- The adapter interface `07_Integration_Specifications.md` Section 1 requires, with the chosen
-  vendor behind it and a fake for tests.
-- Asynchronous result handling through the existing `ScreeningRequest` model and the webhook
-  path, since these checks take hours to days.
-- Re-screening on a schedule. `07_Integration_Specifications.md` Section 3 expects recurring
-  re-verification, and `exclusion_checked_at` exists for it. The credential-expiry announcer is
-  the model to copy.
-- A compliance exception when a re-screen comes back flagged for a caregiver with future visits
-  assigned, because that is an active scheduling problem and not a record update.
+- `careos.integrations.screening` — the adapter interface `07_Integration_Specifications.md`
+  Section 1 requires, a registry that raises rather than defaulting, and a loopback adapter
+  refused outside local and test.
+- Asynchronous handling through `ScreeningRequest`: ordered, outstanding, resolved. Ordering
+  clears nobody. A pending or unreadable result changes nothing, so every failure mode leaves a
+  caregiver unassignable rather than cleared.
+- Two worker jobs — polling for verdicts every five minutes, ordering re-screens daily against
+  `exclusion_checked_at` and `CAREOS_SCREENING_RECHECK_INTERVAL_DAYS`.
+- `background_check.completed`, which was in the published webhook contract with no producer.
+- A critical compliance exception when a flagged caregiver still holds future visits. It does
+  not unassign them: emptying five slots silently leaves five clients with nobody arriving.
+
+**Still to do:** one adapter class for the chosen vendor, and a conformance run against their
+sandbox. The status-mapping function refuses any status not explicitly mapped, so that run is
+where a vendor's real vocabulary gets discovered rather than guessed.
 
 **Yours:** the vendor contract, and a signed BAA before any identity data moves.
 
@@ -231,17 +245,29 @@ worker. Metrics answer whether a clock-in was slow; nothing answers why.
 
 Per Section 1 of this document, the audit cannot precede outcomes.
 
-**Ours:** a per-agency flag that runs the scorer and records its output without displaying it.
-The admin app shows no rank, no score, and no ordering derived from one while the flag is off.
-An audit-log entry records that a score was computed and withheld, so the shadow period is
-evidenced rather than asserted.
+**Built:** `agency.ranking_display_enabled`, defaulting to false so a new agency is in the
+shadow period by construction rather than by remembering. While it is off the scorer still runs
+and still persists — the audit needs those rows — and the API returns a null score, no factors,
+no model version, and the applicant list in application order. Ordering is part of what is
+withheld: the top of a list is a recommendation whether or not it carries a number. Every
+ranking run writes `ranking_displayed` into its audit row, so the shadow period is evidenced at
+the moment it was true rather than asserted afterwards from a config value.
+
+Ending it is one endpoint, owner/admin only, and it refuses unless a passing
+`ai_hiring_bias_audit` review is on file. An inconclusive audit does not count: the usual reason
+a fairness audit is inconclusive is too small a sample, and "we could not tell" is not the same
+finding as "we looked and it was fine". There is no endpoint to turn display back off — the flag
+records the point at which an audited model began influencing hiring, and un-setting it would
+leave the trail claiming a shadow period that was not one.
 
 **Yours:** demographic labels collected separately and voluntarily, held apart from the
 applicant record. Employment counsel reviews the audit output before ranking is displayed.
 
 **Verification.** `python -m careos.scripts.run_bias_audit` runs on the first cohort's real
-outcomes, records to the compliance log, and returns zero. A non-zero exit blocks the flag being
-turned on.
+outcomes and records to the compliance log. Run today against a sixteen-applicant demo agency it
+returns `inconclusive` — no hires yet, and groups below `min_group_size`. That is the correct
+answer and it is also the shape of the risk: a first cohort may simply be too small to audit,
+in which case the shadow period extends rather than the threshold moving.
 
 **Exit criteria:** ranking display enabled for one agency, with a dated audit behind it.
 

@@ -778,6 +778,37 @@
   margin-top: 2px;
 }
 
+/* A standing condition, not a failure. Warning tones rather than critical ones: it asks to
+   be read once and understood, not acted on urgently. */
+.info-note {
+  display: flex;
+  gap: var(--space-3);
+  background: var(--warning-wash);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.info-note__icon {
+  color: var(--warning);
+  font-weight: var(--weight-semibold);
+  font-style: italic;
+}
+
+.info-note__title {
+  font-weight: var(--weight-semibold);
+  color: var(--warning);
+  font-size: var(--text-sm);
+}
+
+.info-note__detail {
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+  margin-top: 2px;
+  max-width: 70ch;
+}
+
 .notice {
   display: flex;
   gap: var(--space-3);

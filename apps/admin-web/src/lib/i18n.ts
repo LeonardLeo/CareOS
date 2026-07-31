@@ -295,6 +295,11 @@ const EN = {
     noApplicantsForPosting: "No applicants yet for this posting",
     any: "Any",
     notRanked: "Not ranked",
+    rankingShadowSubtitle:
+      "Scored on certification match, proximity to open shifts, and availability. Protected attributes are never used. Scores are recorded and not shown during the shadow period.",
+    rankingShadowTitle: "AI ranking is not being shown",
+    rankingShadowBody:
+      "Scores are being computed and recorded, and deliberately not displayed, until a bias audit has run on this agency's own hiring outcomes. Applicants below are in the order they applied.",
     couldNotLoadRecruiting: "Could not load recruiting data.",
 
     recruitingTitle: "Recruiting",
@@ -743,6 +748,11 @@ const ES: Record<StringKey, string> = {
     noApplicantsForPosting: "Aún no hay solicitantes para esta publicación",
     any: "Cualquiera",
     notRanked: "Sin clasificar",
+    rankingShadowSubtitle:
+      "Puntuados por coincidencia de certificaciones, cercanía a los turnos abiertos y disponibilidad. Nunca se usan atributos protegidos. Durante el período de sombra las puntuaciones se registran y no se muestran.",
+    rankingShadowTitle: "La clasificación por IA no se está mostrando",
+    rankingShadowBody:
+      "Las puntuaciones se calculan y se registran, y deliberadamente no se muestran, hasta que una auditoría de sesgo se haya ejecutado sobre los resultados de contratación de esta agencia. Los solicitantes aparecen en el orden en que presentaron su solicitud.",
     couldNotLoadRecruiting: "No se pudieron cargar los datos de contratación.",
 
     recruitingTitle: "Contratación",

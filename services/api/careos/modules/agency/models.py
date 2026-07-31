@@ -6,7 +6,16 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -65,6 +74,19 @@ class Agency(Base, PrimaryKeyMixin, TimestampMixin):
     #: Multi-location rollups (US-1.1.3). Franchise billing/royalty is explicitly out of scope.
     parent_org_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("agency.id", ondelete="RESTRICT"), nullable=True
+    )
+    #: False puts this agency in the ranking shadow period: the scorer runs and its output is
+    #: persisted, and no score, rank, or ordering derived from one is shown to anyone. That is
+    #: what lets a bias audit run on real outcomes before the model influences a hire
+    #: (`06_Compliance_and_Regulatory_Requirements.md` Section 5). Defaults false so a new
+    #: agency is in the shadow period by construction rather than by remembering.
+    ranking_display_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    #: When the flag was turned on. The evidence that an audit preceded display — a boolean
+    #: on its own cannot say whether it was ever off.
+    ranking_display_enabled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 

@@ -81,6 +81,12 @@ class Settings(BaseSettings):
     #: Daily, because nothing changes about "expires in 12 days" between one minute and the
     #: next. Safe to run more often — the announcer deduplicates — but pointless.
     worker_credential_interval_seconds: float = 86_400.0
+    #: Screening verdicts arrive over hours. Five minutes is fast enough that a new hire is
+    #: assignable the same morning their check clears, and slow enough not to hammer a vendor
+    #: whose rate limits are usually per-hour.
+    worker_screening_poll_interval_seconds: float = 300.0
+    #: Ordering re-screens is a calendar job like the credential announcer. Daily.
+    worker_screening_rescreen_interval_seconds: float = 86_400.0
     #: Port for the worker's own metrics endpoint. 0 disables it.
     worker_metrics_port: int = 9101
     #: Bind address for that endpoint. A collector in another container needs 0.0.0.0; a
@@ -127,6 +133,17 @@ class Settings(BaseSettings):
     # Guard rail from `03_Technical_Architecture.md` Section 7: staging must never
     # be pointed at production aggregator endpoints.
     evv_use_sandbox: bool = True
+
+    # --- Background-check screening -------------------------------------------
+    #: Vendor adapter for OIG/GSA exclusion and background screening. "loopback" clears
+    #: caregivers by fixture and is refused outside local and test by the registry.
+    screening_adapter: str = "loopback"
+    #: Same sandbox guard rail as EVV: staging must not order real searches on real people.
+    screening_use_sandbox: bool = True
+    #: How long a cleared exclusion check stays good before the re-screening job re-orders
+    #: one. `07_Integration_Specifications.md` Section 3 expects recurring re-verification;
+    #: OIG updates LEIE monthly, so a month is the longest interval that can be defended.
+    screening_recheck_interval_days: int = 30
 
     @property
     def is_production(self) -> bool:
@@ -185,6 +202,10 @@ def validate_settings(settings: Settings) -> Settings:
         raise RuntimeError(
             "CAREOS_METRICS_TOKEN must be set in production, or /metrics is readable by anyone"
         )
+    if settings.screening_adapter == "loopback":
+        # The loopback adapter clears every caregiver whose name lacks a marker string. In
+        # production that is not a degraded check, it is a fabricated one.
+        raise RuntimeError("CAREOS_SCREENING_ADAPTER must not be 'loopback' in production")
     return settings
 
 

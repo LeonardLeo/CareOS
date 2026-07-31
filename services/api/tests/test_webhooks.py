@@ -281,6 +281,7 @@ def test_production_refuses_a_private_or_loopback_url(monkeypatch) -> None:
         "CAREOS_RATE_LIMIT_BACKEND": "redis",
         "CAREOS_METRICS_TOKEN": "set-in-the-secrets-manager",
         "CAREOS_MFA_REQUIRED": "true",
+        "CAREOS_SCREENING_ADAPTER": "vendor",
     }.items():
         monkeypatch.setenv(key, value)
     get_settings.cache_clear()

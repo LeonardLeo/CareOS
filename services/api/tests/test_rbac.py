@@ -113,7 +113,18 @@ EXPECTED_ACCESS: dict[str, list[str]] = {
     "POST /v1/caregivers": ["owner_admin", "scheduler"],
     "POST /v1/caregivers/{caregiver_id}/credentials": ["owner_admin", "scheduler"],
     "POST /v1/caregivers/{caregiver_id}/exclusion-check": ["owner_admin"],
+    # Ordering a search discloses identity data to a subprocessor and is billed for.
+    "POST /v1/caregivers/{caregiver_id}/screenings": ["owner_admin"],
+    # Reading one returns criminal-history match detail. Schedulers are out: they need to
+    # know whether someone is assignable, which `exclusion_check_status` already tells them.
+    "GET /v1/caregivers/{caregiver_id}/screenings": [
+        "auditor",
+        "clinical_supervisor",
+        "owner_admin",
+    ],
     "POST /v1/caregivers/{caregiver_id}/terminate": ["owner_admin"],
+    # Ends the ranking shadow period, i.e. lets an AI score start reaching hiring decisions.
+    "POST /v1/agencies/{agency_id}/ranking-display": ["owner_admin"],
     "POST /v1/clients": ["clinical_supervisor", "owner_admin", "scheduler"],
     "POST /v1/clients/{client_id}/care-plans": ["clinical_supervisor", "owner_admin"],
     "POST /v1/compliance-exceptions/{exception_id}/resolve": [

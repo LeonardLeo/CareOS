@@ -67,6 +67,14 @@ class AuditAction(enum.StrEnum):
     credential_added = "credential.added"
     credential_verified = "credential.verified"
     exclusion_check_recorded = "caregiver.exclusion_check_recorded"
+    #: A search ordered from a background-check vendor. Audited on its own because it sends
+    #: a caregiver's identity data to a subprocessor — the disclosure happens at the order,
+    #: not at the result.
+    screening_ordered = "caregiver.screening_ordered"
+    #: A vendor verdict applied to the caregiver record. Separate from
+    #: `exclusion_check_recorded`, which is an administrator typing in what they saw on the
+    #: OIG website; this one is the vendor's answer, and an auditor needs to tell them apart.
+    screening_completed = "caregiver.screening_completed"
 
     job_posting_created = "job_posting.created"
     applicant_ingested = "applicant.ingested"
@@ -76,6 +84,10 @@ class AuditAction(enum.StrEnum):
     #: Recorded when a scheduler is shown AI-ranked caregiver suggestions. Ranking influences
     #: who gets offered work, so the suggestion event is auditable in its own right.
     shift_suggestions_generated = "visit.suggestions_generated"
+    #: The end of an agency's ranking shadow period — the moment model output starts reaching
+    #: the people who decide who gets hired. Carries the bias audit it was granted on, which
+    #: is what makes "the audit came first" checkable after the fact rather than asserted.
+    ranking_display_enabled = "agency.ranking_display_enabled"
 
     #: A full-agency data export. Audited because the archive is a plaintext PHI extract of
     #: everything the agency holds — the single largest disclosure this system can perform, and

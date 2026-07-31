@@ -463,6 +463,7 @@ async def test_production_refuses_to_boot_without_the_requirement() -> None:
         "rate_limit_backend": "redis",
         "metrics_token": "a-real-token",
         "field_encryption_key": base64.b64encode(b"0" * 32).decode(),
+        "screening_adapter": "vendor",
     }
 
     with pytest.raises(RuntimeError, match="MFA_REQUIRED"):

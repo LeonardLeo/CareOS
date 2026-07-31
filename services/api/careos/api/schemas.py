@@ -377,6 +377,38 @@ class ExclusionCheckResult(BaseModel):
     vendor_reference: str | None = None
 
 
+class ScreeningOrderRequest(BaseModel):
+    """Which checks to order from the background-check vendor.
+
+    Empty means the onboarding bundle. Named explicitly rather than defaulted in the handler
+    so an agency re-ordering only an exclusion check does not silently pay for a criminal
+    history search it did not want.
+    """
+
+    checks: list[Literal["exclusion_list", "criminal_history", "sex_offender_registry"]] = Field(
+        default_factory=list
+    )
+
+
+class ScreeningRequestOut(ORMModel):
+    """An ordered screening and, once it resolves, its verdict.
+
+    `result_payload` is deliberately included: a flagged result's match detail is what an
+    administrator adjudicates against fair-hiring law, and hiding it behind a second endpoint
+    would mean the decision gets made without it.
+    """
+
+    id: uuid.UUID
+    caregiver_id: uuid.UUID
+    vendor_key: str
+    check_types: list[Any]
+    vendor_request_id: str | None
+    status: str
+    result_payload: dict[str, Any]
+    completed_at: datetime | None
+    created_at: datetime
+
+
 # --- Pagination -----------------------------------------------------------------------
 
 
@@ -451,6 +483,41 @@ class ApplicantOut(ORMModel):
     ranking_factors: list[Any]
     ranking_model_version: str | None
     created_at: datetime
+    #: False while the agency is in its ranking shadow period. When false the three ranking
+    #: fields above are null and empty regardless of what is stored, and the list order is
+    #: not derived from the model. Sent explicitly so a client can say "ranking is off"
+    #: rather than having to infer it from three nulls, which also reads as "not scored yet".
+    ranking_displayed: bool = True
+
+    @classmethod
+    def from_applicant(cls, applicant: Any, *, display_ranking: bool) -> ApplicantOut:
+        """Build the response, withholding the model's output during a shadow period.
+
+        The withholding happens here, at the boundary, rather than by not writing the score:
+        the bias audit reads those columns, so they have to exist. What must not happen is
+        the number reaching a person who decides who gets hired
+        (`13_Phase_1_Launch_Plan.md` 6.3).
+        """
+        out = cls.model_validate(applicant)
+        if display_ranking:
+            return out
+        return out.model_copy(
+            update={
+                "ranking_score": None,
+                "ranking_factors": [],
+                "ranking_model_version": None,
+                "ranking_displayed": False,
+            }
+        )
+
+
+class RankingDisplayOut(BaseModel):
+    """Whether this agency shows AI ranking, and since when."""
+
+    agency_id: uuid.UUID
+    ranking_display_enabled: bool
+    #: Null while the agency is still in its shadow period.
+    enabled_at: datetime | None
 
 
 class StageChange(BaseModel):

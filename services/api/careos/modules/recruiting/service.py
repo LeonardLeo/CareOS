@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from careos.core.audit import AuditAction, record_audit
 from careos.core.errors import ConflictError, NotFoundError
 from careos.core.security import Principal
+from careos.modules.agency.models import Agency
 from careos.modules.credentialing.models import Caregiver, EmploymentStatus, ExclusionCheckStatus
 from careos.modules.recruiting.models import ApplicantProfile, JobPosting, PipelineStage
 from careos.modules.recruiting.ranking import applicant_scorer, haversine_miles
@@ -185,13 +186,104 @@ def build_applicant_features(
     return features
 
 
+async def ranking_display_enabled(session: AsyncSession, agency_id: uuid.UUID) -> bool:
+    """Whether this agency is past its ranking shadow period.
+
+    False means the scorer still runs and still persists — the bias audit needs those rows —
+    and nothing derived from it reaches a screen. A missing agency row resolves to False for
+    the same reason everything else here fails closed: the safe answer to "should an unaudited
+    model influence this hire?" is no.
+    """
+    enabled = (
+        await session.execute(select(Agency.ranking_display_enabled).where(Agency.id == agency_id))
+    ).scalar_one_or_none()
+    return bool(enabled)
+
+
+#: Bias-audit outcomes that may end a shadow period. `inconclusive` is excluded on purpose:
+#: the usual reason a fairness audit is inconclusive is too small a sample, and "we could not
+#: tell" is not the same finding as "we looked and it was fine".
+AUDIT_OUTCOMES_PERMITTING_DISPLAY = frozenset({"passed", "passed_with_findings"})
+
+
+async def enable_ranking_display(session: AsyncSession, *, principal: Principal) -> Agency:
+    """End an agency's ranking shadow period, if a bias audit stands behind it.
+
+    Refuses unless a recorded `ai_hiring_bias_audit` review exists and passed. That check is
+    the entire value of the flag: a boolean anyone can set is a preference, and what
+    `06_Compliance_and_Regulatory_Requirements.md` Section 5 requires is that the audit
+    happened first. Here the code will not let it happen second.
+    """
+    from careos.modules.audit import compliance_log
+    from careos.modules.audit.compliance_log_models import ReviewType
+
+    statuses = {s.review_type: s for s in await compliance_log.review_status(session)}
+    audit = statuses.get(ReviewType.ai_hiring_bias_audit.value)
+    if audit is None or audit.never_performed:
+        raise ConflictError(
+            "Ranking display cannot be enabled before a bias audit has been recorded",
+            details={
+                "review_type": ReviewType.ai_hiring_bias_audit.value,
+                "remediation": (
+                    "Run `python -m careos.scripts.run_bias_audit` against this agency's real "
+                    "hiring outcomes. It records the review on success."
+                ),
+            },
+        )
+    if audit.last_outcome not in AUDIT_OUTCOMES_PERMITTING_DISPLAY:
+        raise ConflictError(
+            "The most recent bias audit does not permit enabling ranking display",
+            details={
+                "last_outcome": audit.last_outcome,
+                "last_performed_on": (
+                    audit.last_performed_on.isoformat() if audit.last_performed_on else None
+                ),
+                "permitted": sorted(AUDIT_OUTCOMES_PERMITTING_DISPLAY),
+            },
+        )
+
+    agency = await session.get(Agency, principal.agency_id)
+    if agency is None:
+        raise NotFoundError("Agency not found")
+    if agency.ranking_display_enabled:
+        return agency
+
+    agency.ranking_display_enabled = True
+    agency.ranking_display_enabled_at = datetime.now(UTC)
+    await session.flush()
+
+    await record_audit(
+        session,
+        principal=principal,
+        agency_id=principal.agency_id,
+        action=AuditAction.ranking_display_enabled,
+        entity_type="agency",
+        entity_id=agency.id,
+        before_state={"ranking_display_enabled": False},
+        after_state={
+            "ranking_display_enabled": True,
+            "bias_audit_performed_on": (
+                audit.last_performed_on.isoformat() if audit.last_performed_on else None
+            ),
+            "bias_audit_outcome": audit.last_outcome,
+        },
+    )
+    return agency
+
+
 async def rank_applicants(
     session: AsyncSession,
     *,
     principal: Principal,
     job_posting_id: uuid.UUID | None = None,
 ) -> list[ApplicantProfile]:
-    """Score and persist rankings for a posting's applicants (US-1.2.2)."""
+    """Score and persist rankings for a posting's applicants (US-1.2.2).
+
+    Always scores, whether or not the agency displays the result. That is what makes a
+    shadow period produce anything: the bias audit reads `applicant_profile.ranking_score`
+    against real hiring outcomes, so an agency that skipped scoring during the shadow period
+    would reach the end of it with nothing to audit.
+    """
     posting = None
     if job_posting_id is not None:
         posting = await session.get(JobPosting, job_posting_id)
@@ -225,6 +317,8 @@ async def rank_applicants(
 
     await session.flush()
 
+    display_enabled = await ranking_display_enabled(session, principal.agency_id)
+
     if applicants:
         await record_audit(
             session,
@@ -236,8 +330,20 @@ async def rank_applicants(
             after_state={
                 "ranked_count": len(applicants),
                 "model_version": applicant_scorer.model_version,
+                # The evidence for the shadow period. A claim that scores were computed and
+                # never shown is worth nothing if the only record of it is a config value
+                # that can be flipped afterwards; this row is written at the moment it was
+                # true (`13_Phase_1_Launch_Plan.md` 6.3).
+                "ranking_displayed": display_enabled,
             },
         )
+
+    if not display_enabled:
+        # Application order, which is not derived from the model. Returning score order and
+        # merely blanking the numbers would leak the ranking through the list itself — the
+        # top of a list is a recommendation whether or not it carries a number.
+        return sorted(applicants, key=lambda a: a.created_at)
+
     return sorted(
         applicants,
         key=lambda a: a.ranking_score if a.ranking_score is not None else Decimal(0),

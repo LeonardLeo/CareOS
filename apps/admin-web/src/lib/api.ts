@@ -195,6 +195,13 @@ export interface Applicant {
   ranking_factors: RankingFactor[];
   ranking_model_version: string | null;
   created_at: string;
+  /**
+   * False while the agency is in its ranking shadow period. The three fields above are then
+   * null and empty whatever is stored server-side, and the list arrives in application order.
+   * Carried explicitly because "withheld" and "not scored yet" look identical otherwise, and
+   * they mean opposite things to whoever is reading the screen.
+   */
+  ranking_displayed: boolean;
 }
 
 export interface JobPosting {
