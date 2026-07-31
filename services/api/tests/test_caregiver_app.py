@@ -297,6 +297,56 @@ async def test_pacing_headers_are_readable_from_the_device(client) -> None:
     assert {"ratelimit-limit", "ratelimit-remaining", "ratelimit-reset"} <= exposed
 
 
+async def test_middleware_generated_responses_still_carry_cors_headers(
+    client, tenant_a: TenantFixture
+) -> None:
+    """A 429 the middleware builds itself must be readable by the browser that caused it.
+
+    Middleware order decides this, and it was wrong: `request_context` was registered before
+    `CORSMiddleware` and so ran outside it, meaning every response it produced without calling
+    the router — a rate-limit refusal, an auth failure, a failed commit — went out with no
+    `Access-Control-Allow-Origin` at all. A browser blocks such a response entirely, so the
+    caregiver app saw a network error rather than a 429, and the `Retry-After` that the expose
+    list exists to publish was unreachable on the one response that carries it.
+
+    Asserting on the refusal rather than on a 200, because the 200 path was never broken and
+    would have gone on passing while this did not.
+    """
+    from careos.core.ratelimit import RateLimitPolicy, get_rate_limiter
+
+    limiter = get_rate_limiter()
+    original = limiter.policy
+    limiter.policy = RateLimitPolicy(
+        standard_per_minute=1,
+        auth_per_minute=1_000_000,
+        auth_per_ip_per_minute=1_000_000,
+        evv_anomaly_per_minute=1_000_000,
+    )
+    limiter.store.reset()
+    try:
+        origin = {"Origin": "http://localhost:3001", **tenant_a.headers(Role.owner_admin)}
+        assert (await client.get("/v1/clients", headers=origin)).status_code == 200
+        refused = await client.get("/v1/clients", headers=origin)
+        assert refused.status_code == 429
+        assert refused.headers.get("access-control-allow-origin") == "http://localhost:3001"
+        exposed = {
+            h.strip().lower()
+            for h in refused.headers.get("access-control-expose-headers", "").split(",")
+        }
+        assert "retry-after" in exposed
+    finally:
+        limiter.policy = original
+        limiter.store.reset()
+
+    # The same applies to an authentication failure, which the middleware also answers itself.
+    rejected = await client.get(
+        "/v1/clients",
+        headers={"Origin": "http://localhost:3001", "Authorization": "Bearer not-a-real-token"},
+    )
+    assert rejected.status_code == 401
+    assert rejected.headers.get("access-control-allow-origin") == "http://localhost:3001"
+
+
 async def test_an_origin_outside_the_allowlist_is_not_granted_access(client) -> None:
     """A wildcard would let any site read a caregiver's schedule with their bearer token."""
     response = await client.options(

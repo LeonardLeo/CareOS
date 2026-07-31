@@ -74,35 +74,6 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Added for the caregiver app, which — unlike the admin app — calls this API from the
-    # device rather than from its own server, because an on-device outbox has to be able to
-    # replay a clock-in itself. `allow_credentials` stays False: this API authenticates with a
-    # bearer header, not cookies, so there is nothing to gain from it and enabling it would
-    # forbid the explicit-origin checks below from ever being relaxed safely.
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=get_settings().cors_allowed_origins,
-        allow_credentials=False,
-        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        # Idempotency-Key is not a CORS-safelisted header, so without naming it here every
-        # clock-in from a browser would fail its preflight — silently, since the request never
-        # reaches a handler that could report why.
-        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
-        # `Retry-After` and the `RateLimit-*` family have to be named here or a browser hides
-        # them: only a handful of response headers are readable cross-origin by default, and
-        # these are not among them. The caregiver app's outbox reads `Retry-After` to pace its
-        # retries, so without this the header was being sent and silently discarded — the queue
-        # would fall back to its own backoff and retry a throttled server sooner than asked.
-        expose_headers=[
-            "X-Request-ID",
-            "Retry-After",
-            "RateLimit-Limit",
-            "RateLimit-Remaining",
-            "RateLimit-Reset",
-        ],
-        max_age=600,
-    )
-
     @app.middleware("http")
     async def request_context(
         request: Request, call_next: Callable[[Request], Awaitable[JSONResponse]]
@@ -162,6 +133,43 @@ def create_app() -> FastAPI:
         finally:
             request_id_var.reset(request_id_token)
             source_ip_var.reset(source_ip_token)
+
+    # Registered *after* `request_context` on purpose, which makes it the outermost
+    # middleware: Starlette runs the most recently added first. Ordered the other way, any
+    # response `request_context` builds itself — a 429, an auth failure, a failed commit —
+    # skipped this middleware entirely and went out with no CORS headers at all. A browser
+    # then blocks the whole response, so the caregiver app saw a network error instead of a
+    # 429 and could not read the `Retry-After` this middleware exists to expose. Measured:
+    # before the move a 429 carried no `Access-Control-Allow-Origin`.
+    #
+    # Added for the caregiver app, which — unlike the admin app — calls this API from the
+    # device rather than from its own server, because an on-device outbox has to be able to
+    # replay a clock-in itself. `allow_credentials` stays False: this API authenticates with a
+    # bearer header, not cookies, so there is nothing to gain from it and enabling it would
+    # forbid the explicit-origin checks below from ever being relaxed safely.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=get_settings().cors_allowed_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        # Idempotency-Key is not a CORS-safelisted header, so without naming it here every
+        # clock-in from a browser would fail its preflight — silently, since the request never
+        # reaches a handler that could report why.
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
+        # `Retry-After` and the `RateLimit-*` family have to be named here or a browser hides
+        # them: only a handful of response headers are readable cross-origin by default, and
+        # these are not among them. The caregiver app's outbox reads `Retry-After` to pace its
+        # retries, so without this the header was being sent and silently discarded — the queue
+        # would fall back to its own backoff and retry a throttled server sooner than asked.
+        expose_headers=[
+            "X-Request-ID",
+            "Retry-After",
+            "RateLimit-Limit",
+            "RateLimit-Remaining",
+            "RateLimit-Reset",
+        ],
+        max_age=600,
+    )
 
     # Registered before the general CareOSError handler because a 429 also needs Retry-After,
     # and the login endpoint raises one from inside a handler rather than from middleware.

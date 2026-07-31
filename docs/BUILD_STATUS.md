@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 275 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
+| Tests | 276 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **Admin web app and caregiver app both built and working.** Caregiver app is an installable PWA, not React Native — see below |
 | Compliance review | **Not performed** |
@@ -430,6 +430,20 @@ database error is also refused rather than quietly rolled back behind a success 
 
 `tenant_session` remains, with commit-on-exit, for background jobs, scripts, and tests, which
 have no response to race.
+
+### And a second one it uncovered: middleware-built responses had no CORS headers
+
+Checking that the new `COMMIT_FAILED` response was actually usable by the caregiver app found
+that it was not — and neither was anything else the middleware answers by itself.
+`CORSMiddleware` was registered *before* `request_context`, and Starlette runs the most
+recently added middleware first, so `request_context` sat outside it. Every response it built
+without calling the router — a 429, an authentication failure, and now a failed commit — went
+out with no `Access-Control-Allow-Origin` at all, and a browser blocks such a response
+entirely. The caregiver app saw a network error rather than a 429, and could not read the
+`Retry-After` that the previous increment had just gone to the trouble of exposing.
+
+Fixed by registering CORS last, which puts it outermost. Pinned by a test that asserts on the
+*refusal* rather than on a 200 — the 200 path was never broken and would have kept passing.
 
 ## Suggested next steps
 
