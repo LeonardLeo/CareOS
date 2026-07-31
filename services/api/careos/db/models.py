@@ -17,6 +17,7 @@ from careos.modules.documentation import models as documentation_models
 from careos.modules.recruiting import models as recruiting_models
 from careos.modules.reference import models as reference_models
 from careos.modules.scheduling import models as scheduling_models
+from careos.modules.webhooks import models as webhook_models
 
 #: Tables that are global reference data — no `agency_id`, no RLS policy.
 GLOBAL_TABLES: frozenset[str] = frozenset(
@@ -81,4 +82,5 @@ __all__ = [
     "recruiting_models",
     "reference_models",
     "scheduling_models",
+    "webhook_models",
 ]

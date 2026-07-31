@@ -38,7 +38,7 @@ services/api/            Modular-monolith backend (Python 3.11, FastAPI, Postgre
     db/                  Engines, session/tenant context, RLS helpers, model registry
     integrations/evv/    Per-state EVV adapters behind one interface
     modules/             Domain modules per 03_Technical_Architecture.md Section 4
-    workers/             Async jobs (EVV transmission)
+    workers/             Async jobs (EVV transmission, webhook delivery, credential expiry)
     scripts/             Reference-data seeding
   alembic/versions/      Migrations, sequenced per 04_Data_Model_and_Schema.md Section 8
   tests/                 Includes the CI-required multi-tenant isolation suite
@@ -350,6 +350,76 @@ the caller gets a 413 naming the limit instead of an out-of-memory kill that tak
 request on the instance with it. Streaming was the obvious alternative and is worse: a response
 whose body is generated after the status code has been sent cannot report a mid-stream failure,
 which is the defect this codebase just spent an increment removing from the write path.
+
+## Outbound webhooks
+
+`05_API_Specification.md` Section 7 publishes a set of events an agency's own systems can
+subscribe to. `POST /v1/webhooks` registers a URL (owner-admin only — a subscription decides
+where a stream of this agency's events goes, which makes it a security setting rather than a
+preference), and the delivery worker sends signed JSON to it.
+
+**Payloads carry identifiers and status, never PHI.** Section 7's own examples are made of
+ids — "caregiver ID, credential type, days until expiration" — and this codebase treats that
+as the contract, not as brevity. A webhook is an unauthenticated push to a URL somebody typed
+into a form, crossing the public internet to a system CareOS has no BAA with. Anything the
+receiver needs beyond an id it can fetch from the API with a token, leaving an audit trail.
+`assert_payload_carries_no_phi` refuses a payload with a PHI-shaped *field name* at any depth,
+at enqueue time, and it raises rather than filters: a producer that tried to send a name is a
+bug to fix, not a field to quietly drop. Matching on the key rather than the value is
+deliberate — no value-based check can tell a person's name from any other string.
+
+**Delivery is the same transactional outbox as the audit log.** The delivery row is written in
+the transaction that made the change being announced, and a worker sends it afterwards. Calling
+the receiver inline would make an agency's slow endpoint into CareOS's latency and an
+unreachable one into a failed clock-in — and it could announce something that then rolled back.
+Here a rollback takes the unsent webhook with it, which `test_webhooks.py` pins directly.
+
+**Signing.** Each delivery carries `CareOS-Signature: t=<unix>,v1=<hex hmac-sha256>` over
+`"<t>." + body`. The timestamp is *inside* the signed material, so a captured delivery cannot
+be replayed forever: a receiver enforcing the published 300-second tolerance has a window
+instead of an eternity. `careos.modules.webhooks.service.verify` is the receiver-side algorithm,
+kept in the codebase so the suite tests what an integrator will implement rather than a second
+implementation that agrees only with itself. The secret is returned by `POST /v1/webhooks` and
+by no other endpoint; a lost one means a new subscription.
+
+**SSRF is checked twice, and the second one is the real one.** An unrestricted webhook URL is a
+request forwarder — point it at `http://169.254.169.254/` and CareOS fetches cloud instance
+credentials on the agency's behalf. Subscription time rejects private and loopback targets so
+the agency gets a clear error; the worker re-resolves immediately before it connects, because
+DNS is not a promise and a name that resolved publicly then can resolve privately now. Redirects
+are not followed, since a 302 would let the receiver turn a validated URL into an unvalidated
+one.
+
+**Failure is bounded and never silent.** Six attempts per delivery (0s, 30s, 2m, 10m, 1h, 6h),
+then abandoned — kept, not deleted, because "did you send it?" has to be answerable either way.
+Twenty consecutive failures disables the subscription with a written reason an administrator can
+act on, so a dead URL stops accumulating a queue that will never drain. Re-activating clears the
+counter; without that a fixed endpoint would be disabled again on its next hiccup.
+`GET /v1/webhooks/{id}/deliveries` is the answer to the first question of every webhook
+integration, without needing database access.
+
+**One producer is driven by the calendar, and that needs deduplication.**
+`credential.expiring_soon` is not caused by anything a user did — the date simply arrives, and
+"expires in 12 days" is true again tomorrow. A daily job without a memory would re-send every
+notice every day until the agency muted the subscription, which is a retry storm wearing a
+feature's clothes. `enqueue(..., dedupe_on=...)` names the identifying subset of the payload —
+here the credential and the horizon, deliberately *not* the day count — and suppresses a repeat
+to a subscription that already has a matching delivery. Crossing from the 30-day window into
+the 7-day one is a different horizon, so it is announced again, which is the entire point of
+having three. Deduplication is keyed per subscription, so an integration added next month still
+receives the notice the first one already got.
+
+Two of the five events have no producer yet: `background_check.completed` waits on a screening
+vendor and `claim.status_changed` is Phase 3. They are in the enum anyway — the contract is
+published, a receiver may reasonably subscribe in advance, and adding them later would be a
+migration.
+
+**Nothing schedules these workers yet.** `webhook_delivery.drain_agency`,
+`credential_expiry.announce_expiring_credentials`, and the EVV transmission worker are library
+functions with tests, not a running process — there is no scheduler, cron entry, or queue
+consumer in this repository. Until one exists, a deployment queues webhooks and delivers none of
+them. That is a deployment gap rather than a code gap, but it is the difference between this
+working and not.
 
 ## Non-negotiable constraints
 

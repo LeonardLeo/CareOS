@@ -496,3 +496,63 @@ class ExceptionSummaryOut(BaseModel):
 
 class ResolveException(BaseModel):
     note: str | None = None
+
+
+# --- Outbound webhooks (05_API_Specification.md Section 7) ---------------------------------
+
+
+class WebhookSubscriptionCreate(BaseModel):
+    url: str
+    #: Which events to receive. Required and non-empty: a subscription that defaulted to
+    #: "everything" because a field was omitted would be the wrong default for a system
+    #: carrying health data, and one that defaulted to nothing would look broken.
+    events: list[str] = Field(min_length=1)
+    description: str | None = None
+
+
+class WebhookSubscriptionOut(BaseModel):
+    id: uuid.UUID
+    url: str
+    events: list[str]
+    status: str
+    description: str | None
+    disabled_reason: str | None
+    consecutive_failures: int
+    last_success_at: datetime | None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WebhookSubscriptionCreated(WebhookSubscriptionOut):
+    """The creation response, and the only one that ever contains the secret.
+
+    Returned once and never readable again, which is why the field exists on this model and
+    not on `WebhookSubscriptionOut`. A secret a list endpoint hands back is a secret that
+    leaks through every screenshot, log, and cached response of that endpoint.
+    """
+
+    signing_secret: str
+
+
+class WebhookSubscriptionUpdate(BaseModel):
+    events: list[str] | None = None
+    description: str | None = None
+    #: `active` or `paused` only. Re-activating clears the failure count, which is what makes
+    #: this the way to bring back a subscription the system disabled.
+    status: str | None = None
+
+
+class WebhookDeliveryOut(BaseModel):
+    id: uuid.UUID
+    subscription_id: uuid.UUID
+    event: str
+    status: str
+    attempts: int
+    last_attempt_at: datetime | None
+    next_attempt_at: datetime | None
+    last_response_status: int | None
+    last_error: str | None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

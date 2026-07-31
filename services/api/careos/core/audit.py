@@ -77,6 +77,11 @@ class AuditAction(enum.StrEnum):
     #: the first thing an auditor asks to see a record of.
     agency_data_exported = "agency.data_exported"
 
+    #: A subscription decides where a stream of this agency's events is sent, so creating or
+    #: changing one is a security-relevant act, not a preference.
+    webhook_subscription_created = "webhook_subscription.created"
+    webhook_subscription_updated = "webhook_subscription.updated"
+
     compliance_exception_raised = "compliance_exception.raised"
     compliance_exception_resolved = "compliance_exception.resolved"
 

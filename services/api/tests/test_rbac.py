@@ -123,6 +123,13 @@ EXPECTED_ACCESS: dict[str, list[str]] = {
     ],
     "POST /v1/job-postings": ["owner_admin", "scheduler"],
     "POST /v1/users/{user_id}/revoke-sessions": ["owner_admin"],
+    # Where an agency's event stream is sent is a security setting, so creating and changing
+    # a subscription is owner-admin only. Reading is open to the auditor, whose job is to see
+    # what the agency has configured — the response never contains the signing secret.
+    "GET /v1/webhooks": ["auditor", "owner_admin"],
+    "GET /v1/webhooks/{subscription_id}/deliveries": ["auditor", "owner_admin"],
+    "PATCH /v1/webhooks/{subscription_id}": ["owner_admin"],
+    "POST /v1/webhooks": ["owner_admin"],
     "POST /v1/visits/{visit_id}/assign": ["owner_admin", "scheduler"],
     "POST /v1/visits/{visit_id}/clock-in": ["caregiver", "owner_admin", "scheduler"],
     "POST /v1/visits/{visit_id}/clock-out": ["caregiver", "owner_admin", "scheduler"],

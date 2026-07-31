@@ -35,6 +35,8 @@ from careos.modules.scheduling.models import (
     ScheduledVisit,
     TransmissionStatus,
 )
+from careos.modules.webhooks import service as webhook_service
+from careos.modules.webhooks.models import WebhookEvent
 
 logger = structlog.get_logger(__name__)
 
@@ -195,9 +197,13 @@ async def run_once(agency_id: uuid.UUID, *, limit: int = 50) -> TransmissionRun:
             if record.transmission_status is TransmissionStatus.acknowledged:
                 run.acknowledged += 1
                 metrics.evv_transmissions_total.labels(outcome="acknowledged").inc()
+                await _announce(
+                    session, agency_id, record, WebhookEvent.evv_transmission_acknowledged
+                )
             elif record.transmission_status is TransmissionStatus.rejected:
                 run.rejected += 1
                 metrics.evv_transmissions_total.labels(outcome="rejected").inc()
+                await _announce(session, agency_id, record, WebhookEvent.evv_transmission_rejected)
             else:
                 run.still_pending += 1
                 metrics.evv_transmissions_total.labels(outcome="pending").inc()
@@ -219,3 +225,33 @@ async def run_once(agency_id: uuid.UUID, *, limit: int = 50) -> TransmissionRun:
         escalated=run.escalated,
     )
     return run
+
+
+async def _announce(
+    session: AsyncSession,
+    agency_id: uuid.UUID,
+    record: EVVRecord,
+    event: WebhookEvent,
+) -> None:
+    """Queue the outbound webhook for one transmission outcome.
+
+    Identifiers and status only, per `05_API_Specification.md` Section 7 — no client, no
+    caregiver, no address. A receiver that needs the visit's detail can fetch it from the API
+    with a token, over a channel that authenticates them and leaves an audit trail.
+
+    Enqueued in the worker's own transaction, so a transmission that rolls back does not
+    announce itself.
+    """
+    await webhook_service.enqueue(
+        session,
+        agency_id=agency_id,
+        event=event,
+        payload={
+            "evv_record_id": str(record.id),
+            "scheduled_visit_id": str(record.scheduled_visit_id),
+            "transmission_status": record.transmission_status.value,
+            "aggregator_key": record.aggregator_key,
+            "attempts": record.transmission_attempts,
+            "occurred_at": datetime.now(UTC).isoformat(),
+        },
+    )

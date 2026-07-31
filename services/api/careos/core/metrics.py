@@ -100,6 +100,22 @@ evv_escalations_total = Counter(
     registry=REGISTRY,
 )
 
+webhook_deliveries_total = Counter(
+    "careos_webhook_deliveries_total",
+    "Outbound webhook delivery attempts, by outcome.",
+    ["outcome"],
+    registry=REGISTRY,
+)
+
+webhook_subscriptions_disabled_total = Counter(
+    "careos_webhook_subscriptions_disabled_total",
+    (
+        "Subscriptions turned off after repeated delivery failure. An agency whose integration "
+        "has silently stopped is a support ticket that has not been raised yet."
+    ),
+    registry=REGISTRY,
+)
+
 sessions_rejected_total = Counter(
     "careos_sessions_rejected_total",
     "Access tokens refused, by reason — revoked sessions separated from ordinary expiry.",

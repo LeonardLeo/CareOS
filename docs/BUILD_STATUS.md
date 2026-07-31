@@ -9,8 +9,8 @@ intentions.
 **Keep this current.** Drift between this file and the code is a bug
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
-**Last updated:** 2026-07-30
-**Assessed by:** build increment 15 (admin app localization)
+**Last updated:** 2026-07-31
+**Assessed by:** build increment 16 (outbound webhooks)
 
 ---
 
@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 308 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
+| Tests | 338 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **Admin web app and caregiver app both built and working.** Caregiver app is an installable PWA, not React Native — see below |
 | Compliance review | **Not performed** |
@@ -434,6 +434,37 @@ remembered. `GET /v1/agencies/{id}/compliance-reviews` enumerates the full caden
 reviews never performed — a gap shows as `never_performed` rather than being absent from the
 list. The bias audit writes its own outcome here when it runs.
 
+### Outbound webhooks
+`05_API_Specification.md` Section 7, built as a transactional outbox with a delivery worker.
+Owner-admin registers a URL; events are queued in the transaction that caused them and sent
+afterwards, signed with HMAC-SHA256 over a signed timestamp so a captured delivery cannot be
+replayed past the published 300-second window. Five events are defined; three have producers
+today (`evv.transmission_acknowledged`, `evv.transmission_rejected`, and
+`credential.expiring_soon` via the credential job). **`background_check.completed` and
+`claim.status_changed` are defined but never fire** — the first needs a screening vendor, the
+second is Phase 3 — and that is stated here because a subscriber who sees them in the enum has
+no other way to know.
+
+Three properties are enforced rather than documented: payloads carry no PHI-shaped field at any
+depth (`assert_payload_carries_no_phi` raises at enqueue, so a producer that tries fails its own
+request); the SSRF check is repeated immediately before the connection rather than only at
+subscription time, and redirects are not followed; and a subscription that has failed twenty
+times in a row is disabled with a reason in words. See README → *Outbound webhooks* for why each
+of those is a boundary rather than a nicety.
+
+`credential.expiring_soon` is the one producer driven by the calendar rather than by a change,
+so it carries deduplication: `enqueue(..., dedupe_on=...)` suppresses a repeat to a subscription
+that already holds a matching delivery, keyed on the credential and the horizon but *not* on the
+day count. Without it a daily job re-announces every expiring credential every day. Both halves
+are pinned by mutation — removing the dedupe check fails two tests, dropping the horizon from
+the key fails the one asserting that 30 days and 7 days are different events, and adding
+`caregiver_name` to the payload (it sits right there on the dashboard row) fails four.
+
+**Nothing schedules any of this.** `drain_agency`, `announce_expiring_credentials`, and the EVV
+transmission worker are tested library functions, not running processes — there is no scheduler
+or queue consumer in the repository. A deployment today would queue webhooks and deliver none.
+Listed under *Not started* below, because it applies to every worker rather than only this one.
+
 ### Schema
 All tables from `04_Data_Model_and_Schema.md` exist, in the documented migration order —
 including the Phase 2 and Phase 3 tables, which ship unused so that visits recorded today can
@@ -467,7 +498,15 @@ These are honest placeholders, not oversights:
 - **All third-party integrations** — background check, job boards, STT, clearinghouse,
   payroll, legacy EHR import.
 - **Phase 2 and Phase 3 behaviour** — tables only, by design.
-- **Outbound webhooks** (`05_API_Specification.md` Section 7).
+- **A process that runs the background workers.** EVV transmission, webhook delivery, and the
+  credential-expiry announcer are all written, tested, and invoked by nothing. There is no
+  scheduler, cron entry, or queue consumer, so in a deployment an EVV record would sit
+  untransmitted and a webhook subscription would receive nothing. Each worker is a coroutine
+  taking an `agency_id`; what is missing is the loop that enumerates agencies and calls them on
+  a cadence, plus a decision about running one instance or several. Concurrency is accounted
+  for — EVV transmission and webhook delivery both select their due rows `FOR UPDATE SKIP
+  LOCKED`, so two workers do not send the same thing twice — but nothing has been run that way
+  under load.
 - **Staged export for very large agencies.** The synchronous export refuses above
   `MAX_EXPORT_ROWS` rather than risking the instance. An agency past that ceiling needs a job
   that writes to object storage — the `*_s3_key` columns exist and nothing writes them.

@@ -21,7 +21,15 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
 from careos.api.deps import authenticate, enforce_session_revocation
-from careos.api.v1 import agencies, auth, caregivers, clients, recruiting, visits
+from careos.api.v1 import (
+    agencies,
+    auth,
+    caregivers,
+    clients,
+    recruiting,
+    visits,
+    webhooks,
+)
 from careos.config import get_settings
 from careos.core import metrics
 from careos.core.context import request_id_var, source_ip_var
@@ -228,6 +236,7 @@ def create_app() -> FastAPI:
     v1.include_router(clients.router)
     v1.include_router(recruiting.router)
     v1.include_router(visits.router)
+    v1.include_router(webhooks.router)
     app.include_router(v1)
 
     @app.get("/health", tags=["ops"])
