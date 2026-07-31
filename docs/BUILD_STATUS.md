@@ -727,19 +727,96 @@ a test rather than done by hand.
 
 ## Suggested next steps
 
-1. **Run the caregiver app on real devices.** It is verified in Chromium at a phone viewport
-   against a real API, which is a much stronger position than unexecuted code but is not the
-   same as iOS Safari, a real GPS chip, and a genuinely bad connection. Decide native
-   packaging at the same time, since iOS push and background sync depend on it.
-2. **A real destination for the pages.** The rules, the routing, and the local delivery path
-   are built and tested; the receivers are placeholders, so an alert currently reaches a log
-   line rather than a person. This needs a PagerDuty routing key or a Slack webhook and is
-   otherwise a config change.
-3. **First real EVV integration** for one state, end to end through that vendor's sandbox.
-   This is the assumption most likely to be wrong, and the cheapest time to find out is now.
-4. **Engage compliance counsel**, and run the bias audit on real outcomes before the ranking
-   model influences actual hiring. The tooling exists; the audit does not.
-5. **Register a real routing provider.** The `RoutingAdapter` interface and registry
-   exist; only the haversine approximation is implemented. This is now a one-class change.
-6. **Job-board and background-check integrations**, behind the adapter interfaces
-   `07_Integration_Specifications.md` Section 1 requires.
+Ordered by what blocks a first real agency, not by effort. Everything above this line is built
+and verified; everything below is either a decision, a credential, or a person's signature that
+no amount of code produces.
+
+### Before a single real agency can be onboarded
+
+These are hard blockers. None of them is a large amount of work; all of them require something
+this repository cannot hold.
+
+1. **Deploy the stack somewhere, with infrastructure as code.** There is no Terraform and no
+   deployed environment — the local compose file is the only thing that has ever run the system
+   end to end. Everything else on this list assumes an environment exists. Needs: a cloud
+   account, a managed Postgres with encryption at rest, a Redis that is HA rather than a single
+   node, and TLS termination. The worker is already a separate container and scales on replica
+   count.
+2. **Provision the identity provider.** `08_Security_Architecture.md` Section 1 calls for
+   managed OIDC; the local Argon2 password path exists so the system is runnable before that,
+   and `app_user.auth_provider_id` is the seam it plugs into. MFA is built and enforced here
+   today, and moves to the provider with the rest of authentication — do not build more onto
+   the local path.
+3. **First real EVV integration, one state, through the vendor's sandbox.** This is the
+   assumption most likely to be wrong and the cheapest thing on this list to find out about.
+   The adapter layer, the field maps, and the transmission worker are built; the field maps are
+   marked provisional and the state assignments are marked `UNVERIFIED` because nobody has
+   confirmed them against a live aggregator. A wrong map is not a bug that surfaces in testing
+   — it surfaces as a rejected claim months later.
+4. **Wire the pager to a real destination.** Alert rules, routing, inhibitions, and the local
+   delivery path are built and tested end to end; the receivers are placeholders, so today an
+   alert reaches a log line in a container. A PagerDuty routing key or a Slack webhook and this
+   is a config change. Until then the 99.9% NFR is not being met by anything.
+5. **Compliance counsel review, an incident-response plan, and BAAs.**
+   `06_Compliance_and_Regulatory_Requirements.md` Section 9 requires the first before Phase 1
+   launch. The second is not written. The third is not needed *yet* only because no PHI-touching
+   vendor is integrated — which changes the moment step 3 happens.
+6. **Run the bias audit on real outcomes** before the ranking model influences an actual hire.
+   `python -m careos.scripts.run_bias_audit` performs one, records it to the compliance log, and
+   exits non-zero on adverse impact so it can gate a release. It has never been run on real
+   data, because there is none. Needs demographic labels held separately and employment-counsel
+   review of the result.
+
+### Highest-value engineering, roughly in order
+
+7. **Real-device testing for the caregiver app**, and the native-packaging decision with it.
+   Offline clock-in is verified in Chromium at a phone viewport against a real API with the
+   network genuinely cut — a much stronger position than unexecuted code, and still not iOS
+   Safari, a real GPS chip, and a tunnel. iOS web push and background sync depend on the
+   packaging decision, so make it at the same time rather than twice.
+8. **Telephony (IVR) clock-in.** Accepted by the API and modelled end to end, with no phone
+   system attached. Until it exists, a caregiver without a smartphone cannot clock in at all —
+   which for some agencies is a large fraction of the workforce, and for those agencies this is
+   a blocker rather than a nice-to-have.
+9. **Tracing on the clock-in and EVV paths.** Metrics and alerting now answer *that* a clock-in
+   was slow; nothing answers *why*. This is the next observability gap and it is instrumentation
+   rather than infrastructure — the collector can come later.
+10. **Staged export for large agencies.** The synchronous export refuses above `MAX_EXPORT_ROWS`
+    with a 413 rather than risking the instance. An agency past that ceiling currently cannot
+    get their data out at all, which is a portability commitment with a size limit on it. Needs
+    the object-storage bucket that the `*_s3_key` columns already anticipate.
+11. **A QR code on the MFA enrolment screen.** The secret and `otpauth://` URI are shown as
+    text, which every authenticator accepts by manual entry — but typing a 32-character secret
+    into a phone is exactly the step where people give up. Needs a QR encoder in the admin app.
+12. **Extend MFA to schedulers**, which Section 1 asks for next. One line in
+    `MFA_ELIGIBLE_ROLES` and one in `MFA_REQUIRED_ROLES` — but caregivers stay excluded until
+    the caregiver app has a field for a code, or enrolling would lock someone out of the phone
+    they clock in with.
+13. **A real routing provider.** `RoutingAdapter` and its registry exist; only the haversine
+    approximation is implemented, marked `is_estimate` throughout. Adequate for ranking
+    candidates against each other, not for quoting travel time to a caregiver or paying it on a
+    timesheet. A one-class change once a provider is chosen.
+14. **Job-board and background-check integrations**, behind the adapter interfaces
+    `07_Integration_Specifications.md` Section 1 requires. Both are Phase 1 scope that is
+    currently a stub, and background-check is the one that gates whether a caregiver can be
+    scheduled on publicly-funded work at all.
+
+### Deliberately not next
+
+- **Hosted-LLM inference.** Ranking is a deterministic weighted scorer behind a `Scorer`
+  protocol, which `03_Technical_Architecture.md` Section 5 names as the intended first step and
+  explicitly warns against over-building past. An LLM slots in behind the same interface and the
+  same fair-hiring allowlist when there is real outcome data to evaluate it against.
+- **Phase 2 and Phase 3 behaviour.** The tables ship unused by design so that visits recorded
+  today can be traced onto a claim line later without a backfill. Building the behaviour before
+  Phase 1 has a customer would be guessing at requirements twice.
+
+### A process note worth keeping
+
+Every defect fixed in the last four increments was found by *running* the thing, not by reading
+it or by adding tests to green code: responses sent before their transaction committed, a
+terminated caregiver able to sign back in, a runner that could not write the rows it queued, a
+stolen session able to replace someone's second factor. In each case the test suite was passing
+and the code read correctly. The habit that catches these — stand the feature up, use it as a
+person would, then write the test from what actually happened — is cheap and has a much better
+hit rate than review. It is worth keeping when this repository changes hands.
