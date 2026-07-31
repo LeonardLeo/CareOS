@@ -85,9 +85,14 @@ def _prose_only(text: str) -> str:
 
 
 def _without_user_stories(text: str) -> str:
-    """Blank the first-person clause a user story is required to open with."""
+    """Blank first person where it is grammar or quotation rather than voice.
+
+    Two cases. The clause a user story is required to open with, and anything inside double
+    quotes — a document reporting that someone says "we think so" is not itself narrating.
+    """
     out = []
     for line in text.splitlines():
+        line = re.sub(r'"[^"]*"', '""', line)
         if USER_STORY.search(line):
             line = re.sub(r"\bI\b", "", USER_STORY.sub("", line))
         out.append(line)
