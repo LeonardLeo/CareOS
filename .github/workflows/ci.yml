@@ -28,6 +28,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The code cites docs/ by filename and section number in 221 places. Renumbering or
+      # dropping a section invalidates every pointer to it and nothing else would notice.
+      # Only the structure is checked here: scripts/check_docs_voice.py is a heuristic about
+      # register and stays a manual tool, because a style score is not a merge gate.
+      - name: Documentation sections must not move
+        run: python3 scripts/check_docs_structure.py
+
       - name: Ignore rules must not exclude source paths
         run: |
           # A Python .gitignore's unanchored `lib/` once matched apps/admin-web/src/lib and
