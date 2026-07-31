@@ -9,6 +9,8 @@
 import Link from "next/link";
 import { Card, ErrorNote, SeverityBadge, formatDate } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
+import { translatorFor } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
 import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +24,7 @@ export default async function ClientDetailPage({
 }) {
   const session = await getSession();
   if (!session) return null;
+  const t = translatorFor(await getLocale());
   const { id } = await params;
   const { plan: planId, generated, error } = await searchParams;
 
@@ -49,28 +52,28 @@ export default async function ClientDetailPage({
             </p>
           </div>
           <Link className="button button--secondary" href="/clients">
-            Back to clients
+            {t("backToClients")}
           </Link>
         </header>
 
         {generated && (
           <div className="notice">
-            <SeverityBadge severity="good">Generated</SeverityBadge>
+            <SeverityBadge severity="good">{t("generated")}</SeverityBadge>
             <span>
               {generated} visit{generated === "1" ? "" : "s"} created. They are unfilled until
               a caregiver is assigned — see the scheduling board.
             </span>
           </div>
         )}
-        {error && <ErrorNote title="Could not complete that step" detail={error} />}
+        {error && <ErrorNote title={t("couldNotCompleteStep")} detail={error} />}
 
         <div className="grid-2">
           <Card
-            title="1. Care plan"
+            title={t("step1CarePlan")}
             subtitle={
               carePlans.length
-                ? `${carePlans.length} existing plan${carePlans.length === 1 ? "" : "s"} — creating another adds to them`
-                : "Authorized tasks and how often visits recur"
+                ? t("existingPlans", { count: carePlans.length })
+                : t("authorizedTasksAndRecurrence")
             }
           >
             <form method="post" action="/api/care-plans">
@@ -78,24 +81,24 @@ export default async function ClientDetailPage({
 
               <div className="field">
                 <label className="field__label" htmlFor="rrule">
-                  Recurrence
+                  {t("recurrence")}
                 </label>
                 <select className="field__input" id="rrule" name="rrule">
-                  <option value="FREQ=DAILY;COUNT=30">Daily, 30 visits</option>
+                  <option value="FREQ=DAILY;COUNT=30">{t("recurDaily30")}</option>
                   <option value="FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=24">
-                    Mon / Wed / Fri, 24 visits
+                    {t("recurMwf24")}
                   </option>
                   <option value="FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;COUNT=40">
-                    Weekdays, 40 visits
+                    {t("recurWeekdays40")}
                   </option>
-                  <option value="FREQ=WEEKLY;BYDAY=SA,SU;COUNT=16">Weekends, 16 visits</option>
+                  <option value="FREQ=WEEKLY;BYDAY=SA,SU;COUNT=16">{t("recurWeekends16")}</option>
                 </select>
               </div>
 
               <div className="row" style={{ gap: "var(--space-4)", alignItems: "flex-start" }}>
                 <div className="field" style={{ flex: 1 }}>
                   <label className="field__label" htmlFor="start_hour">
-                    Start hour
+                    {t("startHour")}
                   </label>
                   <input
                     className="field__input"
@@ -109,7 +112,7 @@ export default async function ClientDetailPage({
                 </div>
                 <div className="field" style={{ flex: 1 }}>
                   <label className="field__label" htmlFor="effective_start">
-                    Effective from
+                    {t("effectiveFrom")}
                   </label>
                   <input
                     className="field__input"
@@ -123,7 +126,7 @@ export default async function ClientDetailPage({
 
               <div className="field">
                 <label className="field__label" htmlFor="service_code">
-                  Service code
+                  {t("serviceCode")}
                 </label>
                 <input
                   className="field__input"
@@ -132,15 +135,13 @@ export default async function ClientDetailPage({
                   defaultValue="T1019"
                 />
                 <p className="small muted">
-                  Must exist in the reference table for this state and payer. Codes vary by
-                  state and waiver program, so an unconfigured code is rejected with an
-                  explanation rather than silently accepted.
+                  {t("serviceCodeHint")}
                 </p>
               </div>
 
               <div className="field">
                 <label className="field__label" htmlFor="task_label">
-                  Authorized task
+                  {t("authorizedTask")}
                 </label>
                 <input
                   className="field__input"
@@ -152,7 +153,7 @@ export default async function ClientDetailPage({
 
               <div className="field">
                 <label className="field__label" htmlFor="task_credential">
-                  Credential this task requires
+                  {t("credentialTaskRequires")}
                 </label>
                 <input
                   className="field__input"
@@ -161,25 +162,23 @@ export default async function ClientDetailPage({
                   defaultValue="HHA"
                 />
                 <p className="small muted">
-                  Used by shift matching: a caregiver without a valid credential of this type
-                  is not suggested.
+                  {t("credentialTaskHint")}
                 </p>
               </div>
 
               <button className="button" type="submit">
-                Create care plan
+                {t("createCarePlan")}
               </button>
             </form>
           </Card>
 
           <Card
-            title="2. Generate visits"
-            subtitle="Materialize the recurrence into concrete, assignable visits"
+            title={t("step2GenerateVisits")}
+            subtitle={t("generateVisitsSubtitle")}
           >
             {!activePlanId ? (
               <p className="small muted">
-                Create a care plan first. Its recurrence rule is what visits are generated
-                from.
+                {t("createCarePlanFirst")}
               </p>
             ) : (
               <form method="post" action="/api/care-plans/generate">
@@ -211,7 +210,7 @@ export default async function ClientDetailPage({
                 <div className="row" style={{ gap: "var(--space-4)", alignItems: "flex-start" }}>
                   <div className="field" style={{ flex: 1 }}>
                     <label className="field__label" htmlFor="window_start">
-                      From
+                      {t("from")}
                     </label>
                     <input
                       className="field__input"
@@ -223,7 +222,7 @@ export default async function ClientDetailPage({
                   </div>
                   <div className="field" style={{ flex: 1 }}>
                     <label className="field__label" htmlFor="window_end">
-                      To
+                      {t("to")}
                     </label>
                     <input
                       className="field__input"
@@ -237,7 +236,7 @@ export default async function ClientDetailPage({
 
                 <div className="field">
                   <label className="field__label" htmlFor="duration_minutes">
-                    Visit length (minutes)
+                    {t("visitLengthMinutes")}
                   </label>
                   <input
                     className="field__input"
@@ -252,7 +251,7 @@ export default async function ClientDetailPage({
                 </div>
 
                 <button className="button" type="submit">
-                  Generate visits
+                  {t("generateVisits")}
                 </button>
                 <p className="small muted" style={{ marginTop: "var(--space-3)" }}>
                   Safe to re-run: visits already generated for the same start time are
@@ -265,11 +264,11 @@ export default async function ClientDetailPage({
       </>
     );
   } catch (err) {
-    const message = err instanceof ApiError ? err.message : "Could not load this client.";
+    const message = err instanceof ApiError ? err.message : t("couldNotLoadClient");
     return (
       <>
         <header className="page-header">
-          <h1 className="page-title">Client</h1>
+          <h1 className="page-title">{t("clientLabel")}</h1>
         </header>
         <ErrorNote title={message} />
       </>

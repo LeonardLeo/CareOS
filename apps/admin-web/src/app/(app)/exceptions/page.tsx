@@ -16,6 +16,8 @@
 import { Card, EmptyState, ErrorNote, SeverityBadge, formatDateTime } from "@/components/ui";
 import { StatTile } from "@/components/charts";
 import { ApiError, api } from "@/lib/api";
+import { translatorFor } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
 import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +47,7 @@ export default async function ExceptionsPage({
 }) {
   const session = await getSession();
   if (!session) return null;
+  const t = translatorFor(await getLocale());
   const { resolved, error } = await searchParams;
 
   try {
@@ -57,46 +60,45 @@ export default async function ExceptionsPage({
       <>
         <header className="page-header">
           <div>
-            <h1 className="page-title">Compliance exceptions</h1>
+            <h1 className="page-title">{t("exceptionsTitle")}</h1>
             <p className="page-subtitle">
-              Open findings from the rules engine and the EVV transmission worker. Critical
-              items block billing or mean a caregiver cannot legally work the visit.
+              {t("exceptionsSubtitle")}
             </p>
           </div>
         </header>
 
         {resolved && (
           <div className="notice">
-            <SeverityBadge severity="good">Resolved</SeverityBadge>
-            <span>That exception has been closed and the action recorded in the audit log.</span>
+            <SeverityBadge severity="good">{t("resolved")}</SeverityBadge>
+            <span>{t("exceptionClosedNote")}</span>
           </div>
         )}
-        {error && <ErrorNote title="Could not resolve that exception" detail={error} />}
+        {error && <ErrorNote title={t("couldNotResolveException")} detail={error} />}
 
         <div className="stat-grid">
           <StatTile
-            label="Open"
+            label={t("open")}
             value={summary.total_open}
             severity={summary.total_open > 0 ? "warning" : "good"}
           />
           <StatTile
-            label="Critical"
+            label={t("critical")}
             value={summary.by_severity["critical"] ?? 0}
             severity={(summary.by_severity["critical"] ?? 0) > 0 ? "critical" : "good"}
-            hint="Blocks billing or scheduling"
+            hint={t("blocksBillingOrScheduling")}
           />
-          <StatTile label="Warning" value={summary.by_severity["warning"] ?? 0} />
-          <StatTile label="Info" value={summary.by_severity["info"] ?? 0} />
+          <StatTile label={t("warning")} value={summary.by_severity["warning"] ?? 0} />
+          <StatTile label={t("info")} value={summary.by_severity["info"] ?? 0} />
         </div>
 
         <Card
-          title="Queue"
-          subtitle="Most severe first, then oldest first — an exception that has sat for a week outranks one raised an hour ago"
+          title={t("queue")}
+          subtitle={t("queueSubtitle")}
         >
           {exceptions.length === 0 ? (
             <EmptyState
-              title="No open compliance exceptions"
-              detail="Every visit's EVV record, credentials and screening are in order. This queue is empty most of the time — that is the intended state, not a missing page."
+              title={t("noOpenExceptions")}
+              detail={t("noOpenExceptionsDetail")}
             />
           ) : (
             <div style={{ margin: "calc(var(--space-4) * -1)" }}>
@@ -126,12 +128,12 @@ export default async function ExceptionsPage({
                       <input
                         className="field__input"
                         name="note"
-                        placeholder="What was done? (optional)"
+                        placeholder={t("whatWasDone")}
                         style={{ minWidth: "18rem" }}
-                        aria-label="Resolution note"
+                        aria-label={t("resolutionNote")}
                       />
                       <button className="button button--secondary button--small" type="submit">
-                        Mark resolved
+                        {t("markResolved")}
                       </button>
                     </form>
                   </div>
@@ -143,11 +145,11 @@ export default async function ExceptionsPage({
       </>
     );
   } catch (err) {
-    const message = err instanceof ApiError ? err.message : "Could not load the exception queue.";
+    const message = err instanceof ApiError ? err.message : t("couldNotLoadExceptions");
     return (
       <>
         <header className="page-header">
-          <h1 className="page-title">Compliance exceptions</h1>
+          <h1 className="page-title">{t("exceptionsTitle")}</h1>
         </header>
         <ErrorNote title={message} />
       </>

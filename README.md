@@ -108,6 +108,10 @@ Next.js App Router, server-rendered. Three deliberate choices:
 - **Design tokens before screens**, per that document's Section 5, so the caregiver mobile app
   and family portal can adopt the same scale rather than diverging.
 
+Fully localized in English and Spanish, resolved server-side so the first paint is in the
+right language rather than flashing English and correcting itself. `npm run i18n:check`
+fails on any user-facing string that is not going through the translator.
+
 Screens: dashboard, scheduling board with gap queue and ranked suggestions (Flow A, the
 highest-frequency flow), recruiting funnel and applicant pipeline, credentialing renewal
 queue, and compliance review standing.

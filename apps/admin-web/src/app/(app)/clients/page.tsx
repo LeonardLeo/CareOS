@@ -13,6 +13,8 @@
 import Link from "next/link";
 import { Card, EmptyState, ErrorNote, SeverityBadge, Table, formatDate } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
+import { translatorFor } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
 import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +27,7 @@ export default async function ClientsPage({
   const session = await getSession();
   if (!session) return null;
   const { created, error } = await searchParams;
+  const t = translatorFor(await getLocale());
 
   try {
     const clients = await api.clients(session.token);
@@ -33,35 +36,32 @@ export default async function ClientsPage({
       <>
         <header className="page-header">
           <div>
-            <h1 className="page-title">Clients</h1>
-            <p className="page-subtitle">
-              People your agency serves. Each needs a care plan before visits can be
-              generated.
-            </p>
+            <h1 className="page-title">{t("clientsTitle")}</h1>
+            <p className="page-subtitle">{t("clientsSubtitle")}</p>
           </div>
           <Link className="button" href="/clients/new">
-            Add client
+            {t("addClient")}
           </Link>
         </header>
 
         {created && (
           <div className="notice">
-            <SeverityBadge severity="good">Created</SeverityBadge>
-            <span>Client added. Create a care plan next so visits can be generated.</span>
+            <SeverityBadge severity="good">{t("created")}</SeverityBadge>
+            <span>{t("clientAddedNext")}</span>
           </div>
         )}
-        {error && <ErrorNote title="Could not save that client" detail={error} />}
+        {error && <ErrorNote title={t("couldNotSaveClient")} detail={error} />}
 
-        <Card title="Roster" subtitle={`${clients.length} client${clients.length === 1 ? "" : "s"}`}>
+        <Card title={t("roster")} subtitle={t("clientCount", { count: clients.length })}>
           {clients.length === 0 ? (
             <EmptyState
-              title="No clients yet"
-              detail="Add a client, give them a care plan, then generate their recurring visits."
+              title={t("noClientsYet")}
+              detail={t("noClientsDetail")}
             />
           ) : (
             <Table
-              headers={["Name", "State", "Payer", "Status", "Added", ""]}
-              caption="Client roster"
+              headers={[t("colName"), t("colState"), t("colPayer"), t("colStatus"), t("colAdded"), ""]}
+              caption={t("clientRoster")}
             >
               {clients.map((client) => (
                 <tr key={client.id}>
@@ -81,7 +81,7 @@ export default async function ClientsPage({
                       className="button button--secondary button--small"
                       href={`/clients/${client.id}`}
                     >
-                      Care plan
+                      {t("carePlan")}
                     </Link>
                   </td>
                 </tr>
@@ -92,11 +92,11 @@ export default async function ClientsPage({
       </>
     );
   } catch (err) {
-    const message = err instanceof ApiError ? err.message : "Could not load clients.";
+    const message = err instanceof ApiError ? err.message : t("couldNotLoadClients");
     return (
       <>
         <header className="page-header">
-          <h1 className="page-title">Clients</h1>
+          <h1 className="page-title">{t("clientsTitle")}</h1>
         </header>
         <ErrorNote title={message} />
       </>

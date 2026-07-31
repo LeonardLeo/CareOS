@@ -11,6 +11,8 @@
 import { Funnel, ScoreBar } from "@/components/charts";
 import { Card, EmptyState, ErrorNote, FactorList, SeverityBadge, Table, formatDate } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
+import { translatorFor } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
 import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +33,7 @@ export default async function RecruitingPage({
   const session = await getSession();
   if (!session) return null;
   const { posting: selectedPostingId } = await searchParams;
+  const t = translatorFor(await getLocale());
 
   try {
     const [funnel, postings] = await Promise.all([
@@ -45,13 +48,13 @@ export default async function RecruitingPage({
     return (
       <>
         <header className="page-header">
-          <h1 className="page-title">Recruiting</h1>
-          <p className="page-subtitle">Pipeline health and applicant ranking.</p>
+          <h1 className="page-title">{t("recruitingTitle")}</h1>
+          <p className="page-subtitle">{t("recruitingSubtitle")}</p>
         </header>
 
         <Card
-          title="Funnel"
-          subtitle="Counts are cumulative — someone hired also passed screening — so conversion measures progression, not who is sitting in a stage."
+          title={t("funnel")}
+          subtitle={t("funnelSubtitle")}
         >
           {/* Ordered stages, so the validated ordinal ramp carries the sequence. Nominal
               categories would get a single color; these have a real order. */}
@@ -64,23 +67,32 @@ export default async function RecruitingPage({
           />
         </Card>
 
-        <Card title="Job postings" subtitle={`${postings.length} total`}>
+        <Card title={t("jobPostings")} subtitle={t("postingCount", { count: postings.length })}>
           {postings.length === 0 ? (
-            <EmptyState title="No job postings yet" detail="Create one to start collecting applicants." />
+            <EmptyState title={t("noJobPostings")} detail={t("createOneToCollect")} />
           ) : (
-            <Table headers={["Title", "State", "Required credentials", "Created", ""]} caption="Job postings">
+            <Table
+              headers={[
+                t("colTitle"),
+                t("colState"),
+                t("colRequiredCredentials"),
+                t("created"),
+                "",
+              ]}
+              caption={t("jobPostings")}
+            >
               {postings.map((post) => (
                 <tr key={post.id}>
                   <td>{post.title}</td>
                   <td>{post.service_state ?? <span className="muted">—</span>}</td>
-                  <td>{post.required_credential_types.join(", ") || <span className="muted">Any</span>}</td>
+                  <td>{post.required_credential_types.join(", ") || <span className="muted">{t("any")}</span>}</td>
                   <td>{formatDate(post.created_at)}</td>
                   <td>
                     <a
                       className={selected?.id === post.id ? "button button--small" : "button button--secondary button--small"}
                       href={`/recruiting?posting=${post.id}`}
                     >
-                      {selected?.id === post.id ? "Viewing" : "View applicants"}
+                      {selected?.id === post.id ? t("viewing") : t("viewApplicants")}
                     </a>
                   </td>
                 </tr>
@@ -91,22 +103,23 @@ export default async function RecruitingPage({
 
         {selected && (
           <Card
-            title={`Applicants — ${selected.title}`}
-            subtitle="Ranked on certification match, proximity to open shifts, and availability. Protected attributes are never used."
+            title={t("applicantsFor", { posting: selected.title })}
+            subtitle={t("rankingSubtitle")}
           >
             {applicants.length === 0 ? (
-              <EmptyState title="No applicants yet for this posting" />
+              <EmptyState title={t("noApplicantsForPosting")} />
             ) : (
               applicants.map((applicant) => (
                 <div key={applicant.id} className="suggestion">
                   <div className="suggestion__head">
                     <span className="suggestion__name">{applicant.full_name}</span>
                     {applicant.ranking_score === null ? (
-                      <span className="muted small">Not ranked</span>
+                      <span className="muted small">{t("notRanked")}</span>
                     ) : (
                       <ScoreBar
                         score={applicant.ranking_score}
                         segments={applicant.ranking_factors.map((f) => f.weight)}
+                        t={t}
                       />
                     )}
                   </div>
@@ -115,17 +128,18 @@ export default async function RecruitingPage({
                     <SeverityBadge severity={STAGE_SEVERITY[applicant.pipeline_stage] ?? "neutral"}>
                       {applicant.pipeline_stage}
                     </SeverityBadge>{" "}
-                    via {applicant.source}
+                    {t("viaSource", { source: applicant.source })}
                     {applicant.claimed_credentials.length > 0 &&
-                      ` · claims ${applicant.claimed_credentials.join(", ")}`}
+                      t("claimsCredentials", {
+                        credentials: applicant.claimed_credentials.join(", "),
+                      })}
                   </div>
 
                   <FactorList factors={applicant.ranking_factors} />
 
                   {applicant.ranking_model_version && (
                     <p className="small muted" style={{ marginTop: "var(--space-3)" }}>
-                      Ranked by model {applicant.ranking_model_version}. Scores are advisory —
-                      hiring decisions remain with your team.
+                      {t("rankedByModel", { version: applicant.ranking_model_version })}
                     </p>
                   )}
                 </div>
@@ -136,11 +150,12 @@ export default async function RecruitingPage({
       </>
     );
   } catch (error) {
-    const message = error instanceof ApiError ? error.message : "Could not load recruiting data.";
+    const message =
+      error instanceof ApiError ? error.message : t("couldNotLoadRecruiting");
     return (
       <>
         <header className="page-header">
-          <h1 className="page-title">Recruiting</h1>
+          <h1 className="page-title">{t("recruitingTitle")}</h1>
         </header>
         <ErrorNote title={message} />
       </>

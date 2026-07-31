@@ -18,6 +18,8 @@
 
 import { Card, EmptyState, ErrorNote, SeverityBadge, formatDate, formatDateTime } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
+import { translatorFor } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
 import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -51,6 +53,7 @@ export default async function UsersPage({
 }) {
   const session = await getSession();
   if (!session) return null;
+  const t = translatorFor(await getLocale());
   const { invited, revoked, changed, error } = await searchParams;
 
   try {
@@ -62,7 +65,7 @@ export default async function UsersPage({
       <>
         <header className="page-header">
           <div>
-            <h1 className="page-title">Users</h1>
+            <h1 className="page-title">{t("usersTitle")}</h1>
             <p className="page-subtitle">
               {users.length} account{users.length === 1 ? "" : "s"}, {live} with live sessions.
               Ending someone&apos;s sessions signs them out everywhere and makes the caregiver
@@ -73,34 +76,33 @@ export default async function UsersPage({
 
         {invited && (
           <div className="notice">
-            <SeverityBadge severity="good">Invited</SeverityBadge>
-            <span>They can sign in now with the password you set.</span>
+            <SeverityBadge severity="good">{t("invited")}</SeverityBadge>
+            <span>{t("canSignInNow")}</span>
           </div>
         )}
         {changed && (
           <div className="notice">
-            <SeverityBadge severity="good">Updated</SeverityBadge>
-            <span>Role changed, and the change is recorded in the audit log.</span>
+            <SeverityBadge severity="good">{t("updated")}</SeverityBadge>
+            <span>{t("roleChangedNote")}</span>
           </div>
         )}
         {revoked && (
           <div className="notice">
-            <SeverityBadge severity="good">Access ended</SeverityBadge>
+            <SeverityBadge severity="good">{t("accessEnded")}</SeverityBadge>
             <span>
-              Every device they were signed in on stops working on its next request, and cached
-              client details are cleared.
+              {t("accessEndedNote")}
             </span>
           </div>
         )}
-        {error && <ErrorNote title="Could not complete that step" detail={error} />}
+        {error && <ErrorNote title={t("couldNotCompleteStep")} detail={error} />}
 
         <div className="grid-2">
           <Card
-            title="Everyone with access"
-            subtitle="Role decides what each person can reach; ending sessions does not delete the account"
+            title={t("everyoneWithAccess")}
+            subtitle={t("everyoneWithAccessSubtitle")}
           >
             {users.length === 0 ? (
-              <EmptyState title="No users yet" />
+              <EmptyState title={t("noUsersYet")} />
             ) : (
               <div className="stack">
                 {users.map((user) => (
@@ -118,7 +120,7 @@ export default async function UsersPage({
                           // is better than leaving it invisible until an auditor finds it.
                           <>
                             {" · "}
-                            <span className="userrow__warn">MFA not enrolled</span>
+                            <span className="userrow__warn">{t("mfaNotEnrolled")}</span>
                           </>
                         )}
                       </div>
@@ -150,7 +152,7 @@ export default async function UsersPage({
                             ))}
                           </select>
                           <button className="button button--small button--secondary" type="submit">
-                            Save role
+                            {t("saveRole")}
                           </button>
                         </form>
 
@@ -163,12 +165,12 @@ export default async function UsersPage({
                             className="field__input field__input--compact"
                             id={`reason-${user.id}`}
                             name="reason"
-                            placeholder="Reason (recorded)"
+                            placeholder={t("reasonRecorded")}
                             minLength={3}
                             required
                           />
                           <button className="button button--small button--danger" type="submit">
-                            End sessions
+                            {t("endSessions")}
                           </button>
                         </form>
                       </div>
@@ -180,11 +182,11 @@ export default async function UsersPage({
           </Card>
 
           {canAdminister ? (
-            <Card title="Invite someone" subtitle="They sign in with the password you set here">
+            <Card title={t("inviteSomeone")} subtitle={t("theySignInWithPassword")}>
               <form method="post" action="/api/users/invite">
                 <div className="field">
                   <label className="field__label" htmlFor="email">
-                    Email
+                    {t("email")}
                   </label>
                   <input
                     className="field__input"
@@ -198,7 +200,7 @@ export default async function UsersPage({
 
                 <div className="field">
                   <label className="field__label" htmlFor="role">
-                    Role
+                    {t("role")}
                   </label>
                   <select className="field__input" id="role" name="role" defaultValue="scheduler">
                     {ASSIGNABLE_ROLES.map((role) => (
@@ -211,7 +213,7 @@ export default async function UsersPage({
 
                 <div className="field">
                   <label className="field__label" htmlFor="initial_password">
-                    Initial password
+                    {t("initialPassword")}
                   </label>
                   {/* Deliberately type=text: whoever is inviting has to read this out or paste
                       it to the new person, and a masked field they cannot check invites typos
@@ -226,20 +228,19 @@ export default async function UsersPage({
                     required
                   />
                   <p className="small muted" style={{ marginTop: "var(--space-2)" }}>
-                    At least 12 characters. Shown rather than hidden so you can pass it on
-                    without a typo — they should change it after signing in.
+                    {t("initialPasswordHint")}
                   </p>
                 </div>
 
                 <button className="button" type="submit">
-                  Send invitation
+                  {t("sendInvitation")}
                 </button>
               </form>
             </Card>
           ) : (
-            <Card title="Invite someone" subtitle="Owner / Admin only">
+            <Card title={t("inviteSomeone")} subtitle={t("ownerAdminOnly")}>
               <p className="small muted">
-                Your role can see who has access but not change it.
+                {t("canSeeNotChange")}
               </p>
             </Card>
           )}
@@ -247,13 +248,13 @@ export default async function UsersPage({
       </>
     );
   } catch (err) {
-    const message = err instanceof ApiError ? err.message : "Could not load users.";
+    const message = err instanceof ApiError ? err.message : t("couldNotLoadUsers");
     return (
       <>
         <header className="page-header">
-          <h1 className="page-title">Users</h1>
+          <h1 className="page-title">{t("usersTitle")}</h1>
         </header>
-        <ErrorNote title="Could not load users" detail={message} />
+        <ErrorNote title={t("couldNotLoadUsers")} detail={message} />
       </>
     );
   }

@@ -84,6 +84,10 @@ function findings(file) {
   for (const match of code.matchAll(/>\s*([A-Za-z][^<>{}]*?)\s*</g)) {
     const text = match[1].trim();
     if (!text || text.length < 2) continue;
+    // `=>` and a later `<` make the regex span an arrow function, catching code as prose.
+    // Rendered text has none of these, so requiring their absence removes the artifacts
+    // without narrowing what counts as a user-facing string.
+    if (/[;=()\n]|\.\w/.test(text)) continue;
     if (ALLOWED.has(text) || looksLikeCode(text)) continue;
     if (!/[A-Za-z]{2,}/.test(text)) continue;
     out.push({ file: rel, kind: "jsx-text", text });

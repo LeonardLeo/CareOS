@@ -8,13 +8,18 @@
 
 import { Card, EmptyState, ErrorNote, SeverityBadge, Table, formatDate, relativeDays } from "@/components/ui";
 import { ApiError, api, type ExpiringCredential } from "@/lib/api";
+import { type Translator, translatorFor } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
 import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-function CredentialTable({ rows }: { rows: ExpiringCredential[] }) {
+function CredentialTable({ rows, t }: { rows: ExpiringCredential[]; t: Translator }) {
   return (
-    <Table headers={["Caregiver", "Credential", "Expiry date", "When"]} caption="Credentials">
+    <Table
+      headers={[t("colCaregiver"), t("colCredential"), t("colExpiryDate"), t("colWhen")]}
+      caption={t("navCredentialing")}
+    >
       {rows.map((row) => (
         <tr key={row.credential_id}>
           <td>{row.caregiver_name}</td>
@@ -30,6 +35,7 @@ function CredentialTable({ rows }: { rows: ExpiringCredential[] }) {
 export default async function CredentialingPage() {
   const session = await getSession();
   if (!session) return null;
+  const t = translatorFor(await getLocale());
 
   try {
     const rows = await api.credentialExpirations(session.token, 60);
@@ -41,47 +47,45 @@ export default async function CredentialingPage() {
     return (
       <>
         <header className="page-header">
-          <h1 className="page-title">Credentialing</h1>
-          <p className="page-subtitle">
-            Renewal queue. A caregiver whose credential has expired cannot be assigned to
-            visits on or after the expiry date.
-          </p>
+          <h1 className="page-title">{t("navCredentialing")}</h1>
+          <p className="page-subtitle">{t("credentialingSubtitle")}</p>
         </header>
 
         <Card
-          title="Expired"
-          subtitle="Blocking assignment right now"
+          title={t("expired")}
+          subtitle={t("blockingAssignmentNow")}
           action={<SeverityBadge severity={expired.length ? "critical" : "good"}>{expired.length}</SeverityBadge>}
         >
           {expired.length === 0 ? (
-            <EmptyState title="No expired credentials" />
+            <EmptyState title={t("noExpiredCredentials")} />
           ) : (
-            <CredentialTable rows={expired} />
+            <CredentialTable rows={expired} t={t} />
           )}
         </Card>
 
         <Card
-          title="Expiring within 7 days"
+          title={t("expiringWithin7")}
           action={<SeverityBadge severity={within7.length ? "warning" : "good"}>{within7.length}</SeverityBadge>}
         >
-          {within7.length === 0 ? <EmptyState title="Nothing expiring this week" /> : <CredentialTable rows={within7} />}
+          {within7.length === 0 ? <EmptyState title={t("nothingExpiringThisWeek")} /> : <CredentialTable rows={within7} t={t} />}
         </Card>
 
-        <Card title="Expiring within 30 days" action={<SeverityBadge severity="info">{within30.length}</SeverityBadge>}>
-          {within30.length === 0 ? <EmptyState title="Nothing expiring this month" /> : <CredentialTable rows={within30} />}
+        <Card title={t("expiringWithin30")} action={<SeverityBadge severity="info">{within30.length}</SeverityBadge>}>
+          {within30.length === 0 ? <EmptyState title={t("nothingExpiringThisMonth")} /> : <CredentialTable rows={within30} t={t} />}
         </Card>
 
-        <Card title="Expiring within 60 days" action={<SeverityBadge severity="neutral">{within60.length}</SeverityBadge>}>
-          {within60.length === 0 ? <EmptyState title="Nothing on the 60-day horizon" /> : <CredentialTable rows={within60} />}
+        <Card title={t("expiringWithin60")} action={<SeverityBadge severity="neutral">{within60.length}</SeverityBadge>}>
+          {within60.length === 0 ? <EmptyState title={t("nothingOn60DayHorizon")} /> : <CredentialTable rows={within60} t={t} />}
         </Card>
       </>
     );
   } catch (error) {
-    const message = error instanceof ApiError ? error.message : "Could not load credentialing data.";
+    const message =
+      error instanceof ApiError ? error.message : t("couldNotLoadCredentialing");
     return (
       <>
         <header className="page-header">
-          <h1 className="page-title">Credentialing</h1>
+          <h1 className="page-title">{t("navCredentialing")}</h1>
         </header>
         <ErrorNote title={message} />
       </>

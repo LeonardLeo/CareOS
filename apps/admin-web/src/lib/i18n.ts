@@ -127,6 +127,28 @@ const EN = {
 
     // --- Scheduling
     schedulingTitle: "Scheduling",
+    schedulingSubtitle: "Unfilled shifts over the next two weeks, most urgent first.",
+    caregiverAssignedNote: "The caregiver has been assigned to that visit.",
+    couldNotAssign: "That caregiver could not be assigned",
+    next7Days: "Next 7 days",
+    next7DaysSubtitle:
+      "Each mark is a visit, positioned by time of day. Clusters of unfilled visits show up as vertical runs.",
+    unfilledShifts: "Unfilled shifts",
+    soonestFirst: "Soonest first",
+    noUnfilledShifts: "No unfilled shifts",
+    everyVisitAssigned2Weeks: "Every visit in the next two weeks has a caregiver assigned.",
+    unfilledShifts2WeeksCaption: "Unfilled shifts in the next two weeks",
+    selectUnfilledShift: "Select an unfilled shift",
+    selectShiftDetail: "Ranked caregivers and the reasoning behind each score will appear here.",
+    nobodyCanTakeVisit: "Nobody can take this visit right now",
+    nobodyCanTakeDetail:
+      "Everyone is unavailable, double-booked, or blocked by a compliance gate — an uncleared exclusion check or an expired credential. Check the credentialing queue.",
+    suggestions: "Suggestions",
+    onlyCompliantListed: "{when} · only caregivers who pass every compliance gate are listed",
+    factorsConsidered: "{count} factors considered",
+    assignNamed: "Assign {name}",
+    couldNotLoadScheduling: "Could not load scheduling data.",
+
     gapQueue: "Unfilled visits",
     noGaps: "Every scheduled visit has a caregiver assigned.",
     suggestedCaregivers: "Suggested caregivers",
@@ -140,6 +162,21 @@ const EN = {
 
     // --- Clients
     clientsTitle: "Clients",
+    newClientSubtitle:
+      "Date of birth and street address are encrypted before they are stored. Coordinates are held separately and coarsely, because the visit geofence rule computes against them.",
+    clientDetails: "Client details",
+    streetAddress: "Street address",
+    latitude: "Latitude",
+    longitude: "Longitude",
+    serviceStateHint: "Selects the EVV aggregator and the compliance rule set that apply.",
+    primaryPayer: "Primary payer",
+    payerMedicaidWaiver: "Medicaid waiver",
+    payerMedicareAdvantage: "Medicare Advantage",
+    payerPrivatePay: "Private pay",
+    payerOther: "Other",
+    primaryPayerHint:
+      "Publicly-funded payers require a cleared OIG/GSA exclusion check before any caregiver can be assigned.",
+
     newClient: "New client",
     createClient: "Create client",
     creating: "Creating…",
@@ -149,13 +186,88 @@ const EN = {
     serviceState: "Service state",
     payerType: "Payer type",
     carePlans: "Care plans",
+    backToClients: "Back to clients",
+    generated: "Generated",
+    couldNotCompleteStep: "Could not complete that step",
+    step1CarePlan: "1. Care plan",
+    step2GenerateVisits: "2. Generate visits",
+    existingPlans_one: "{count} existing plan — creating another adds to them",
+    existingPlans_other: "{count} existing plans — creating another adds to them",
+    authorizedTasksAndRecurrence: "Authorized tasks and how often visits recur",
+    recurrence: "Recurrence",
+    recurDaily30: "Daily, 30 visits",
+    recurMwf24: "Mon / Wed / Fri, 24 visits",
+    recurWeekdays40: "Weekdays, 40 visits",
+    recurWeekends16: "Weekends, 16 visits",
+    startHour: "Start hour",
+    effectiveFrom: "Effective from",
+    serviceCode: "Service code",
+    serviceCodeHint:
+      "Must exist in the reference table for this state and payer. Codes vary by state and waiver program, so an unconfigured code is rejected with an explanation rather than silently accepted.",
+    authorizedTask: "Authorized task",
+    credentialTaskRequires: "Credential this task requires",
+    credentialTaskHint:
+      "Used by shift matching: a caregiver without a valid credential of this type is not suggested.",
+    createCarePlan: "Create care plan",
+    generateVisitsSubtitle: "Materialize the recurrence into concrete, assignable visits",
+    createCarePlanFirst:
+      "Create a care plan first. Its recurrence rule is what visits are generated from.",
+    from: "From",
+    to: "To",
+    visitLengthMinutes: "Visit length (minutes)",
+    safeToRerun:
+      "Safe to re-run: visits already generated for the same start time are not duplicated.",
+    couldNotLoadClient: "Could not load this client.",
+    clientLabel: "Client",
+
     noCarePlans: "No care plan yet. A visit cannot be scheduled without one.",
     authorizedTasks: "Authorized tasks",
     generateVisits: "Generate visits",
     noClients: "No clients yet.",
 
+    clientsSubtitle:
+      "People your agency serves. Each needs a care plan before visits can be generated.",
+    addClient: "Add client",
+    created: "Created",
+    clientAddedNext: "Client added. Create a care plan next so visits can be generated.",
+    carePlan: "Care plan",
+    couldNotSaveClient: "Could not save that client",
+    roster: "Roster",
+    noClientsYet: "No clients yet",
+    noClientsDetail:
+      "Add a client, give them a care plan, then generate their recurring visits.",
+    clientRoster: "Client roster",
+    clientCount_one: "{count} client",
+    clientCount_other: "{count} clients",
+    colName: "Name",
+    colState: "State",
+    colPayer: "Payer",
+    colAdded: "Added",
+    couldNotLoadClients: "Could not load clients.",
+
     // --- Exceptions
     exceptionsTitle: "Compliance exceptions",
+    exceptionsSubtitle:
+      "Open findings from the rules engine and the EVV transmission worker. Critical items block billing or mean a caregiver cannot legally work the visit.",
+    resolved: "Resolved",
+    exceptionClosedNote: "That exception has been closed and the action recorded in the audit log.",
+    markResolved: "Mark resolved",
+    couldNotResolveException: "Could not resolve that exception",
+    open: "Open",
+    critical: "Critical",
+    blocksBillingOrScheduling: "Blocks billing or scheduling",
+    warning: "Warning",
+    info: "Info",
+    queue: "Queue",
+    queueSubtitle:
+      "Most severe first, then oldest first — an exception that has sat for a week outranks one raised an hour ago",
+    noOpenExceptions: "No open compliance exceptions",
+    noOpenExceptionsDetail:
+      "Every visit's EVV record, credentials and screening are in order. This queue is empty most of the time — that is the intended state, not a missing page.",
+    whatWasDone: "What was done? (optional)",
+    resolutionNote: "Resolution note",
+    couldNotLoadExceptions: "Could not load the exception queue.",
+
     noExceptions: "No open exceptions.",
     resolve: "Resolve",
     resolving: "Resolving…",
@@ -163,8 +275,35 @@ const EN = {
     raisedOn: "Raised {date}",
     severity: "Severity",
 
+    outOf100MatchScore: "out of 100 match score",
+    noVisits: "No visits",
+    unfilled: "Unfilled",
     // --- Recruiting
+    recruitingSubtitle: "Pipeline health and applicant ranking.",
+    funnelSubtitle:
+      "Counts are cumulative — someone hired also passed screening — so conversion measures progression, not who is sitting in a stage.",
+    jobPostings: "Job postings",
+    noJobPostings: "No job postings yet",
+    createOneToCollect: "Create one to start collecting applicants.",
+    rankingSubtitle:
+      "Ranked on certification match, proximity to open shifts, and availability. Protected attributes are never used.",
+    noApplicantsForPosting: "No applicants yet for this posting",
+    any: "Any",
+    notRanked: "Not ranked",
+    couldNotLoadRecruiting: "Could not load recruiting data.",
+
     recruitingTitle: "Recruiting",
+    postingCount: "{count} total",
+    colTitle: "Title",
+    colRequiredCredentials: "Required credentials",
+    viewing: "Viewing",
+    viewApplicants: "View applicants",
+    applicantsFor: "Applicants — {posting}",
+    viaSource: "via {source}",
+    claimsCredentials: " · claims {credentials}",
+    rankedByModel:
+      "Ranked by model {version}. Scores are advisory — hiring decisions remain with your team.",
+
     funnel: "Applicant funnel",
     applicants: "Applicants",
     stage: "Stage",
@@ -179,6 +318,39 @@ const EN = {
     expired: "Expired",
     noExpiring: "No credentials are expiring in the next 60 days.",
 
+    complianceSubtitle: "Review cadence from the compliance requirements. {outstanding} of {total} need attention.",
+    reviewStanding: "Review standing",
+    reviewStandingSubtitle: "A review that has never been performed is listed, not omitted",
+    colOutcome: "Outcome",
+    never: "Never",
+    eventTriggered: "Event-triggered",
+    current: "Current",
+    beforeGoingLive: "Before going live",
+    beforeGoingLiveBody:
+      "Healthcare-compliance counsel must review the EVV and HIPAA implementation before Phase 1 launch, and the AI hiring bias audit must be run on real outcomes before ranking influences hiring decisions. Run the audit with {command}; it records its outcome here automatically.",
+    couldNotLoadCompliance: "Could not load compliance data.",
+    reviewHealthcareCounsel: "Healthcare compliance counsel review",
+    reviewConsentLawState: "State consent-law review (ambient documentation)",
+    reviewBillingCodingConsultant: "Certified billing / coding consultant review",
+    reviewAiHiringBiasAudit: "AI hiring bias audit",
+    reviewCmsPpsRuleReview: "CMS Home Health PPS rule review",
+    reviewEvvVendorReview: "State EVV vendor assignment review",
+    reviewNewStateEntry: "New state entry check",
+    reviewSecurityPenetrationTest: "Security penetration test",
+    // --- Credentialing
+    credentialingSubtitle:
+      "Renewal queue. A caregiver whose credential has expired cannot be assigned to a visit.",
+    expiringWithin7: "Expiring within 7 days",
+    expiringWithin30: "Expiring within 30 days",
+    expiringWithin60: "Expiring within 60 days",
+    noExpiredCredentials: "No expired credentials",
+    nothingExpiringThisWeek: "Nothing expiring this week",
+    nothingExpiringThisMonth: "Nothing expiring this month",
+    nothingOn60DayHorizon: "Nothing on the 60-day horizon",
+    blockingAssignmentNow: "Blocking assignment right now",
+    couldNotLoadCredentialing: "Could not load credentialing data.",
+    colExpiryDate: "Expiry date",
+
     // --- Compliance
     complianceTitle: "Compliance reviews",
     reviewType: "Review",
@@ -189,6 +361,31 @@ const EN = {
 
     // --- Users
     usersTitle: "Users",
+    usersSubtitle:
+      "Everyone who can sign in to this agency, and what each of them can reach.",
+    invited: "Invited",
+    canSignInNow: "They can sign in now with the password you set.",
+    updated: "Updated",
+    roleChangedNote: "Role changed, and the change is recorded in the audit log.",
+    accessEnded: "Access ended",
+    accessEndedNote:
+      "Every device they were signed in on stops working on its next request, and cached client details are cleared.",
+    mfaNotEnrolled: "MFA not enrolled",
+    saveRole: "Save role",
+    everyoneWithAccess: "Everyone with access",
+    everyoneWithAccessSubtitle:
+      "Role decides what each person can reach; ending sessions does not delete the account",
+    noUsersYet: "No users yet",
+    reasonRecorded: "Reason (recorded)",
+    inviteSomeone: "Invite someone",
+    theySignInWithPassword: "They sign in with the password you set here",
+    sendInvitation: "Send invitation",
+    ownerAdminOnly: "Owner / Admin only",
+    canSeeNotChange: "Your role can see who has access but not change it.",
+    initialPasswordHint:
+      "At least 12 characters. Shown rather than hidden so you can pass it on without a typo — they should change it after signing in.",
+    couldNotLoadUsers: "Could not load users",
+
     inviteUser: "Invite user",
     inviting: "Inviting…",
     role: "Role",
@@ -209,6 +406,22 @@ const EN = {
 } as const;
 
 export type StringKey = keyof typeof EN;
+
+/**
+ * The base name of a pluralized entry — `clientCount` for `clientCount_one` / `_other`.
+ *
+ * Derived from the keys rather than declared, so a new plural pair becomes callable without a
+ * second list to keep in step, and a base name with no `_other` variant is a type error at the
+ * call site instead of an `undefined` on screen.
+ */
+export type PluralKey = keyof typeof EN extends infer K
+  ? K extends `${infer Base}_other`
+    ? Base
+    : never
+  : never;
+
+/** Anything `translate` will accept. */
+export type TranslatableKey = StringKey | PluralKey;
 
 /**
  * Spanish, typed as `Record<StringKey, string>`.
@@ -307,6 +520,30 @@ const ES: Record<StringKey, string> = {
     checkApiReachable: "Verifique que la API de CareOS esté en ejecución y accesible en CAREOS_API_URL.",
 
     schedulingTitle: "Horarios",
+    schedulingSubtitle: "Turnos sin cubrir en las próximas dos semanas, los más urgentes primero.",
+    caregiverAssignedNote: "El cuidador ha sido asignado a esa visita.",
+    couldNotAssign: "No se pudo asignar a ese cuidador",
+    next7Days: "Próximos 7 días",
+    next7DaysSubtitle:
+      "Cada marca es una visita, ubicada según la hora del día. Los grupos de visitas sin cubrir aparecen como series verticales.",
+    unfilledShifts: "Turnos sin cubrir",
+    soonestFirst: "Los más cercanos primero",
+    noUnfilledShifts: "No hay turnos sin cubrir",
+    everyVisitAssigned2Weeks: "Todas las visitas de las próximas dos semanas tienen cuidador asignado.",
+    unfilledShifts2WeeksCaption: "Turnos sin cubrir en las próximas dos semanas",
+    selectUnfilledShift: "Seleccione un turno sin cubrir",
+    selectShiftDetail:
+      "Aquí aparecerán los cuidadores clasificados y el razonamiento de cada puntuación.",
+    nobodyCanTakeVisit: "Nadie puede tomar esta visita en este momento",
+    nobodyCanTakeDetail:
+      "Todos están no disponibles, con doble reserva o bloqueados por un control de cumplimiento — una verificación de exclusión sin aprobar o una credencial vencida. Revise la cola de credenciales.",
+    suggestions: "Sugerencias",
+    onlyCompliantListed:
+      "{when} · solo se listan los cuidadores que superan todos los controles de cumplimiento",
+    factorsConsidered: "{count} factores considerados",
+    assignNamed: "Asignar a {name}",
+    couldNotLoadScheduling: "No se pudieron cargar los datos de horarios.",
+
     gapQueue: "Visitas sin cubrir",
     noGaps: "Todas las visitas programadas tienen cuidador asignado.",
     suggestedCaregivers: "Cuidadores sugeridos",
@@ -319,6 +556,21 @@ const ES: Record<StringKey, string> = {
     unassigned: "Sin asignar",
 
     clientsTitle: "Clientes",
+    newClientSubtitle:
+      "La fecha de nacimiento y la dirección se cifran antes de almacenarse. Las coordenadas se guardan por separado y de forma aproximada, porque la regla de geocerca de la visita se calcula sobre ellas.",
+    clientDetails: "Datos del cliente",
+    streetAddress: "Dirección",
+    latitude: "Latitud",
+    longitude: "Longitud",
+    serviceStateHint: "Determina el agregador de EVV y el conjunto de reglas de cumplimiento aplicables.",
+    primaryPayer: "Pagador principal",
+    payerMedicaidWaiver: "Exención de Medicaid",
+    payerMedicareAdvantage: "Medicare Advantage",
+    payerPrivatePay: "Pago privado",
+    payerOther: "Otro",
+    primaryPayerHint:
+      "Los pagadores con fondos públicos requieren una verificación de exclusión OIG/GSA aprobada antes de poder asignar a un cuidador.",
+
     newClient: "Nuevo cliente",
     createClient: "Crear cliente",
     creating: "Creando…",
@@ -328,12 +580,89 @@ const ES: Record<StringKey, string> = {
     serviceState: "Estado de servicio",
     payerType: "Tipo de pagador",
     carePlans: "Planes de cuidado",
+    backToClients: "Volver a clientes",
+    generated: "Generadas",
+    couldNotCompleteStep: "No se pudo completar ese paso",
+    step1CarePlan: "1. Plan de cuidado",
+    step2GenerateVisits: "2. Generar visitas",
+    existingPlans_one: "{count} plan existente — crear otro se suma a los actuales",
+    existingPlans_other: "{count} planes existentes — crear otro se suma a los actuales",
+    authorizedTasksAndRecurrence: "Tareas autorizadas y frecuencia de las visitas",
+    recurrence: "Recurrencia",
+    recurDaily30: "Diaria, 30 visitas",
+    recurMwf24: "Lunes / miércoles / viernes, 24 visitas",
+    recurWeekdays40: "Días laborables, 40 visitas",
+    recurWeekends16: "Fines de semana, 16 visitas",
+    startHour: "Hora de inicio",
+    effectiveFrom: "Vigente desde",
+    serviceCode: "Código de servicio",
+    serviceCodeHint:
+      "Debe existir en la tabla de referencia para este estado y pagador. Los códigos varían según el estado y el programa de exención, por lo que un código no configurado se rechaza con una explicación en lugar de aceptarse en silencio.",
+    authorizedTask: "Tarea autorizada",
+    credentialTaskRequires: "Credencial que requiere esta tarea",
+    credentialTaskHint:
+      "La usa la asignación de turnos: un cuidador sin una credencial válida de este tipo no se sugiere.",
+    createCarePlan: "Crear plan de cuidado",
+    generateVisitsSubtitle: "Convertir la recurrencia en visitas concretas y asignables",
+    createCarePlanFirst:
+      "Cree primero un plan de cuidado. Su regla de recurrencia es la base para generar las visitas.",
+    from: "Desde",
+    to: "Hasta",
+    visitLengthMinutes: "Duración de la visita (minutos)",
+    safeToRerun:
+      "Se puede volver a ejecutar sin riesgo: las visitas ya generadas para la misma hora de inicio no se duplican.",
+    couldNotLoadClient: "No se pudo cargar este cliente.",
+    clientLabel: "Cliente",
+
     noCarePlans: "Aún no hay plan de cuidado. No se puede programar una visita sin uno.",
     authorizedTasks: "Tareas autorizadas",
     generateVisits: "Generar visitas",
     noClients: "Aún no hay clientes.",
 
+    clientsSubtitle:
+      "Personas a las que atiende su agencia. Cada una necesita un plan de cuidado antes de poder programar visitas.",
+    addClient: "Agregar cliente",
+    created: "Creado",
+    clientAddedNext:
+      "Cliente agregado. Cree un plan de cuidado para poder generar visitas.",
+    carePlan: "Plan de cuidado",
+    couldNotSaveClient: "No se pudo guardar ese cliente",
+    roster: "Lista",
+    noClientsYet: "Aún no hay clientes",
+    noClientsDetail:
+      "Agregue un cliente, asígnele un plan de cuidado y luego genere sus visitas recurrentes.",
+    clientRoster: "Lista de clientes",
+    clientCount_one: "{count} cliente",
+    clientCount_other: "{count} clientes",
+    colName: "Nombre",
+    colState: "Estado",
+    colPayer: "Pagador",
+    colAdded: "Agregado",
+    couldNotLoadClients: "No se pudieron cargar los clientes.",
+
     exceptionsTitle: "Excepciones de cumplimiento",
+    exceptionsSubtitle:
+      "Hallazgos abiertos del motor de reglas y del proceso de transmisión de EVV. Los elementos críticos impiden la facturación o significan que un cuidador no puede trabajar legalmente la visita.",
+    resolved: "Resuelta",
+    exceptionClosedNote:
+      "Esa excepción se cerró y la acción quedó registrada en el registro de auditoría.",
+    markResolved: "Marcar como resuelta",
+    couldNotResolveException: "No se pudo resolver esa excepción",
+    open: "Abiertas",
+    critical: "Crítica",
+    blocksBillingOrScheduling: "Impide la facturación o la programación",
+    warning: "Advertencia",
+    info: "Información",
+    queue: "Cola",
+    queueSubtitle:
+      "Las más graves primero, luego las más antiguas — una excepción que lleva una semana pendiente tiene prioridad sobre una registrada hace una hora",
+    noOpenExceptions: "No hay excepciones de cumplimiento abiertas",
+    noOpenExceptionsDetail:
+      "El registro de EVV, las credenciales y las verificaciones de cada visita están en orden. Esta cola está vacía la mayor parte del tiempo — ese es el estado esperado, no una página faltante.",
+    whatWasDone: "¿Qué se hizo? (opcional)",
+    resolutionNote: "Nota de resolución",
+    couldNotLoadExceptions: "No se pudo cargar la cola de excepciones.",
+
     noExceptions: "No hay excepciones abiertas.",
     resolve: "Resolver",
     resolving: "Resolviendo…",
@@ -341,7 +670,34 @@ const ES: Record<StringKey, string> = {
     raisedOn: "Registrada el {date}",
     severity: "Gravedad",
 
+    outOf100MatchScore: "de 100 en la puntuación de coincidencia",
+    noVisits: "Sin visitas",
+    unfilled: "Sin cubrir",
+    recruitingSubtitle: "Estado del proceso y clasificación de solicitantes.",
+    funnelSubtitle:
+      "Los conteos son acumulativos — quien fue contratado también pasó la verificación — por lo que la conversión mide el avance, no cuántos están en cada etapa.",
+    jobPostings: "Publicaciones de empleo",
+    noJobPostings: "Aún no hay publicaciones de empleo",
+    createOneToCollect: "Cree una para empezar a recibir solicitantes.",
+    rankingSubtitle:
+      "Clasificados por coincidencia de certificaciones, cercanía a los turnos abiertos y disponibilidad. Nunca se usan atributos protegidos.",
+    noApplicantsForPosting: "Aún no hay solicitantes para esta publicación",
+    any: "Cualquiera",
+    notRanked: "Sin clasificar",
+    couldNotLoadRecruiting: "No se pudieron cargar los datos de contratación.",
+
     recruitingTitle: "Contratación",
+    postingCount: "{count} en total",
+    colTitle: "Título",
+    colRequiredCredentials: "Credenciales requeridas",
+    viewing: "Viendo",
+    viewApplicants: "Ver solicitantes",
+    applicantsFor: "Solicitantes — {posting}",
+    viaSource: "vía {source}",
+    claimsCredentials: " · declara {credentials}",
+    rankedByModel:
+      "Clasificado por el modelo {version}. Las puntuaciones son orientativas — las decisiones de contratación siguen siendo de su equipo.",
+
     funnel: "Embudo de solicitantes",
     applicants: "Solicitantes",
     stage: "Etapa",
@@ -355,6 +711,38 @@ const ES: Record<StringKey, string> = {
     expired: "Vencidas",
     noExpiring: "No hay credenciales por vencer en los próximos 60 días.",
 
+    complianceSubtitle: "Ciclo de revisiones según los requisitos de cumplimiento. {outstanding} de {total} requieren atención.",
+    reviewStanding: "Estado de las revisiones",
+    reviewStandingSubtitle: "Una revisión que nunca se ha realizado aparece en la lista, no se omite",
+    colOutcome: "Resultado",
+    never: "Nunca",
+    eventTriggered: "Activada por evento",
+    current: "Al día",
+    beforeGoingLive: "Antes de la puesta en marcha",
+    beforeGoingLiveBody:
+      "Un asesor legal de cumplimiento sanitario debe revisar la implementación de EVV y HIPAA antes del lanzamiento de la Fase 1, y la auditoría de sesgo del modelo de contratación debe ejecutarse sobre resultados reales antes de que la clasificación influya en las decisiones de contratación. Ejecute la auditoría con {command}; registra su resultado aquí automáticamente.",
+    couldNotLoadCompliance: "No se pudieron cargar los datos de cumplimiento.",
+    reviewHealthcareCounsel: "Revisión de asesoría legal en cumplimiento sanitario",
+    reviewConsentLawState: "Revisión de la ley de consentimiento estatal (documentación ambiental)",
+    reviewBillingCodingConsultant: "Revisión de consultor certificado en facturación y codificación",
+    reviewAiHiringBiasAudit: "Auditoría de sesgo en contratación con IA",
+    reviewCmsPpsRuleReview: "Revisión de la norma PPS de atención domiciliaria de CMS",
+    reviewEvvVendorReview: "Revisión de asignación de proveedor EVV estatal",
+    reviewNewStateEntry: "Verificación de entrada a un nuevo estado",
+    reviewSecurityPenetrationTest: "Prueba de penetración de seguridad",
+    credentialingSubtitle:
+      "Cola de renovaciones. Un cuidador cuya credencial ha vencido no puede asignarse a una visita.",
+    expiringWithin7: "Vencen en 7 días",
+    expiringWithin30: "Vencen en 30 días",
+    expiringWithin60: "Vencen en 60 días",
+    noExpiredCredentials: "No hay credenciales vencidas",
+    nothingExpiringThisWeek: "Nada vence esta semana",
+    nothingExpiringThisMonth: "Nada vence este mes",
+    nothingOn60DayHorizon: "Nada en el horizonte de 60 días",
+    blockingAssignmentNow: "Impide la asignación ahora mismo",
+    couldNotLoadCredentialing: "No se pudieron cargar los datos de credenciales.",
+    colExpiryDate: "Fecha de vencimiento",
+
     complianceTitle: "Revisiones de cumplimiento",
     reviewType: "Revisión",
     lastPerformed: "Última realizada",
@@ -363,6 +751,31 @@ const ES: Record<StringKey, string> = {
     neverPerformed: "Nunca realizada",
 
     usersTitle: "Usuarios",
+    usersSubtitle:
+      "Todas las personas que pueden iniciar sesión en esta agencia y a qué puede acceder cada una.",
+    invited: "Invitado",
+    canSignInNow: "Ya puede iniciar sesión con la contraseña que estableció.",
+    updated: "Actualizado",
+    roleChangedNote: "Función cambiada; el cambio queda registrado en el registro de auditoría.",
+    accessEnded: "Acceso finalizado",
+    accessEndedNote:
+      "Todos los dispositivos en los que había iniciado sesión dejan de funcionar en su siguiente solicitud, y los datos de clientes en caché se borran.",
+    mfaNotEnrolled: "Sin autenticación de múltiples factores",
+    saveRole: "Guardar función",
+    everyoneWithAccess: "Todas las personas con acceso",
+    everyoneWithAccessSubtitle:
+      "La función determina a qué puede acceder cada persona; cerrar las sesiones no elimina la cuenta",
+    noUsersYet: "Aún no hay usuarios",
+    reasonRecorded: "Motivo (queda registrado)",
+    inviteSomeone: "Invitar a alguien",
+    theySignInWithPassword: "Iniciará sesión con la contraseña que establezca aquí",
+    sendInvitation: "Enviar invitación",
+    ownerAdminOnly: "Solo propietario / administrador",
+    canSeeNotChange: "Su función permite ver quién tiene acceso, pero no modificarlo.",
+    initialPasswordHint:
+      "Al menos 12 caracteres. Se muestra en lugar de ocultarse para que pueda transmitirla sin errores — la persona debería cambiarla después de iniciar sesión.",
+    couldNotLoadUsers: "No se pudieron cargar los usuarios",
+
     inviteUser: "Invitar usuario",
     inviting: "Invitando…",
     role: "Función",
@@ -403,7 +816,7 @@ const STRINGS: Record<Locale, Record<StringKey, string>> = { en: EN, es: ES };
  */
 function resolvePlural(
   locale: Locale,
-  key: StringKey,
+  key: TranslatableKey,
   tokens: Record<string, string | number>,
 ): string | undefined {
   if (!("count" in tokens)) return undefined;
@@ -418,16 +831,30 @@ function resolvePlural(
 
 export function translate(
   locale: Locale,
-  key: StringKey,
+  key: TranslatableKey,
   tokens: Record<string, string | number> = {},
 ): string {
-  const template: string = resolvePlural(locale, key, tokens) ?? STRINGS[locale][key] ?? STRINGS.en[key];
+  const plural = resolvePlural(locale, key, tokens);
+  if (plural !== undefined) return interpolate(plural, tokens);
+  const direct = STRINGS[locale] as Record<string, string>;
+  const fallback = STRINGS.en as Record<string, string>;
+  // The `?? key` tail is unreachable for a `StringKey` — the compiler guarantees both
+  // dictionaries define it — and exists only so a `PluralKey` used without a `count` token
+  // degrades to something visible rather than the string "undefined".
+  const template: string = direct[key] ?? fallback[key] ?? key;
+  return interpolate(template, tokens);
+}
+
+function interpolate(template: string, tokens: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (match, token: string) =>
     token in tokens ? String(tokens[token]) : match,
   );
 }
 
-export type Translator = (key: StringKey, tokens?: Record<string, string | number>) => string;
+export type Translator = (
+  key: TranslatableKey,
+  tokens?: Record<string, string | number>,
+) => string;
 
 export function translatorFor(locale: Locale): Translator {
   return (key, tokens) => translate(locale, key, tokens);

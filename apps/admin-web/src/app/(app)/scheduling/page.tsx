@@ -32,6 +32,8 @@ import {
   formatDateTime,
 } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
+import { translatorFor } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
 import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +50,7 @@ export default async function SchedulingPage({
   const session = await getSession();
   if (!session) return null;
   const { visit: selectedVisitId, error, assigned } = await searchParams;
+  const t = translatorFor(await getLocale());
 
   try {
     // Two weeks of gaps for the queue; all visits in the window for the timeline, so the
@@ -79,9 +82,9 @@ export default async function SchedulingPage({
       <>
         <header className="page-header">
           <div>
-            <h1 className="page-title">Scheduling</h1>
+            <h1 className="page-title">{t("schedulingTitle")}</h1>
             <p className="page-subtitle">
-              Unfilled shifts over the next two weeks, most urgent first.
+              {t("schedulingSubtitle")}
             </p>
           </div>
           <div className="row">
@@ -93,14 +96,14 @@ export default async function SchedulingPage({
 
         {assigned && (
           <div className="notice">
-            <SeverityBadge severity="good">Assigned</SeverityBadge>
-            <span>The caregiver has been assigned to that visit.</span>
+            <SeverityBadge severity="good">{t("assigned")}</SeverityBadge>
+            <span>{t("caregiverAssignedNote")}</span>
           </div>
         )}
 
         {error && (
           <ErrorNote
-            title="That caregiver could not be assigned"
+            title={t("couldNotAssign")}
             // The API names the rule that blocked it — an uncleared exclusion check, an
             // expired credential — which is exactly what the scheduler needs to act on.
             detail={error}
@@ -108,30 +111,30 @@ export default async function SchedulingPage({
         )}
 
         <Card
-          title="Next 7 days"
-          subtitle="Each mark is a visit, positioned by time of day. Clusters of unfilled visits show up as vertical runs."
+          title={t("next7Days")}
+          subtitle={t("next7DaysSubtitle")}
         >
-          <ScheduleTimeline visits={timeline} days={7} selectedId={selected?.id} />
+          <ScheduleTimeline visits={timeline} days={7} selectedId={selected?.id} t={t} />
         </Card>
 
         <div className="grid-2">
-          <Card title="Unfilled shifts" subtitle="Soonest first">
+          <Card title={t("unfilledShifts")} subtitle={t("soonestFirst")}>
             {gaps.length === 0 ? (
               <EmptyState
-                title="No unfilled shifts"
-                detail="Every visit in the next two weeks has a caregiver assigned."
+                title={t("noUnfilledShifts")}
+                detail={t("everyVisitAssigned2Weeks")}
               />
             ) : (
               <Table
-                headers={["When", "Service", "Payer", ""]}
-                caption="Unfilled shifts in the next two weeks"
+                headers={[t("colWhen"), t("colService"), t("colPayer"), ""]}
+                caption={t("unfilledShifts2WeeksCaption")}
               >
                 {gaps.map((visit) => (
                   <tr key={visit.id} data-selected={selected?.id === visit.id}>
                     <td>{formatDateTime(visit.scheduled_start)}</td>
                     <td>
                       {visit.service_type_code ?? (
-                        <SeverityBadge severity="warning">No service code</SeverityBadge>
+                        <SeverityBadge severity="warning">{t("noServiceCode")}</SeverityBadge>
                       )}
                     </td>
                     <td className="muted small">
@@ -146,7 +149,7 @@ export default async function SchedulingPage({
                         }
                         href={`/scheduling?visit=${visit.id}`}
                       >
-                        {selected?.id === visit.id ? "Viewing" : "Fill"}
+                        {selected?.id === visit.id ? t("viewing") : t("fill")}
                       </Link>
                     </td>
                   </tr>
@@ -156,22 +159,24 @@ export default async function SchedulingPage({
           </Card>
 
           <Card
-            title={selected ? "Suggested caregivers" : "Suggestions"}
+            title={selected ? t("suggestedCaregivers") : t("suggestions")}
             subtitle={
               selected
-                ? `${formatDateTime(selected.scheduled_start)} · only caregivers who pass every compliance gate are listed`
+                ? t("onlyCompliantListed", {
+                    when: formatDateTime(selected.scheduled_start),
+                  })
                 : undefined
             }
           >
             {!selected ? (
               <EmptyState
-                title="Select an unfilled shift"
-                detail="Ranked caregivers and the reasoning behind each score will appear here."
+                title={t("selectUnfilledShift")}
+                detail={t("selectShiftDetail")}
               />
             ) : suggestions.length === 0 ? (
               <EmptyState
-                title="Nobody can take this visit right now"
-                detail="Everyone is unavailable, double-booked, or blocked by a compliance gate — an uncleared exclusion check or an expired credential. Check the credentialing queue."
+                title={t("nobodyCanTakeVisit")}
+                detail={t("nobodyCanTakeDetail")}
               />
             ) : (
               <div style={{ margin: "calc(var(--space-4) * -1)" }}>
@@ -181,7 +186,7 @@ export default async function SchedulingPage({
                       <div>
                         <div className="suggestion__name">{suggestion.caregiver_name}</div>
                         <div className="suggestion__meta">
-                          {suggestion.factors.length} factors considered
+                          {t("factorsConsidered", { count: suggestion.factors.length })}
                         </div>
                       </div>
                       {/* Magnitude as length, so candidates are compared by bar rather than
@@ -189,6 +194,7 @@ export default async function SchedulingPage({
                       <ScoreBar
                         score={suggestion.score}
                         segments={suggestion.factors.map((f) => f.weight)}
+                        t={t}
                       />
                     </div>
 
@@ -210,7 +216,9 @@ export default async function SchedulingPage({
                           value={suggestion.caregiver_id}
                         />
                         <button className="button button--small" type="submit">
-                          Assign {suggestion.caregiver_name.split(" ")[0]}
+                          {t("assignNamed", {
+                            name: suggestion.caregiver_name.split(" ")[0] ?? "",
+                          })}
                         </button>
                       </form>
                     </div>
@@ -223,11 +231,11 @@ export default async function SchedulingPage({
       </>
     );
   } catch (err) {
-    const message = err instanceof ApiError ? err.message : "Could not load scheduling data.";
+    const message = err instanceof ApiError ? err.message : t("couldNotLoadScheduling");
     return (
       <>
         <header className="page-header">
-          <h1 className="page-title">Scheduling</h1>
+          <h1 className="page-title">{t("schedulingTitle")}</h1>
         </header>
         <ErrorNote title={message} />
       </>

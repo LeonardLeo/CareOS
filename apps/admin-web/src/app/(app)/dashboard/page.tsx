@@ -22,6 +22,8 @@ import {
   relativeDays,
 } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
+import { translatorFor } from "@/lib/i18n";
+import { getLocale } from "@/lib/locale";
 import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +31,7 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const session = await getSession();
   if (!session) return null;
+  const t = translatorFor(await getLocale());
 
   try {
     const [gaps, expiring, caregivers, visits] = await Promise.all([
@@ -68,35 +71,35 @@ export default async function DashboardPage() {
       <>
         <header className="page-header">
           <div>
-            <h1 className="page-title">Dashboard</h1>
-            <p className="page-subtitle">Operational health across your agency.</p>
+            <h1 className="page-title">{t("dashboardTitle")}</h1>
+            <p className="page-subtitle">{t("dashboardSubtitle")}</p>
           </div>
         </header>
 
         <div className="grid-2" style={{ marginBottom: "var(--space-4)" }}>
-          <Card title="Needs attention">
+          <Card title={t("needsAttention")}>
             <HeroFigure
               value={attention}
-              label={attention === 0 ? "Nothing needs action today" : "items need action"}
+              label={attention === 0 ? t("nothingNeedsAction") : t("itemsNeedAction")}
               severity={attention === 0 ? "good" : attention > 3 ? "critical" : "warning"}
               detail={
                 attention === 0 ? (
-                  "Every shift is covered, no credential has lapsed, and every caregiver is screened."
+                  t("allClearDetail")
                 ) : (
                   <span className="row">
                     {gaps.length > 0 && (
                       <SeverityBadge severity="critical">
-                        {gaps.length} unfilled
+                        {t("countUnfilled", { count: gaps.length })}
                       </SeverityBadge>
                     )}
                     {expired.length > 0 && (
                       <SeverityBadge severity="critical">
-                        {expired.length} expired credential{expired.length === 1 ? "" : "s"}
+                        {t("countExpiredCredential", { count: expired.length })}
                       </SeverityBadge>
                     )}
                     {unscreened.length > 0 && (
                       <SeverityBadge severity="warning">
-                        {unscreened.length} unscreened
+                        {t("countUnscreened", { count: unscreened.length })}
                       </SeverityBadge>
                     )}
                   </span>
@@ -105,9 +108,9 @@ export default async function DashboardPage() {
             />
           </Card>
 
-          <Card title="Coverage" subtitle="Upcoming visits with a caregiver assigned">
+          <Card title={t("coverageTitle")} subtitle={t("coverageSubtitle")}>
             <Meter
-              label="Shifts covered"
+              label={t("shiftsCovered")}
               value={filled}
               total={upcoming.length}
               severity={
@@ -117,34 +120,38 @@ export default async function DashboardPage() {
                     ? "critical"
                     : "warning"
               }
-              caption="A visit without a caregiver at its start time becomes a missed visit — and, for Medicaid clients, an EVV compliance exception."
+              caption={t("shiftsCoveredCaption")}
             />
             <Meter
-              label="Caregivers cleared to work"
+              label={t("caregiversCleared")}
               value={caregivers.length - unscreened.length}
               total={caregivers.length}
               severity={unscreened.length === 0 ? "good" : "warning"}
-              caption="Only caregivers with a cleared OIG/GSA exclusion check may be scheduled for publicly-funded visits."
+              caption={t("caregiversClearedCaption")}
             />
           </Card>
         </div>
 
         <div className="stat-grid">
-          <StatTile label="Active caregivers" value={activeCaregivers.length} href="/credentialing" />
           <StatTile
-            label="Scheduled visits"
+            label={t("activeCaregivers")}
+            value={activeCaregivers.length}
+            href="/credentialing"
+          />
+          <StatTile
+            label={t("scheduledVisits")}
             value={visits.page.total}
-            hint="Last 14 days plotted"
+            hint={t("last14DaysPlotted")}
             trend={visitTrend}
           />
           <StatTile
-            label="Expiring in 60 days"
+            label={t("expiringIn60Days")}
             value={expiring.length - expired.length}
             severity={expiring.length - expired.length > 0 ? "warning" : "neutral"}
             href="/credentialing"
           />
           <StatTile
-            label="Unfilled, next 72h"
+            label={t("unfilledNext72h")}
             value={gaps.length}
             severity={gaps.length > 0 ? "critical" : "good"}
             href="/scheduling"
@@ -153,31 +160,34 @@ export default async function DashboardPage() {
 
         <div className="grid-2">
           <Card
-            title="Shifts needing a caregiver"
-            subtitle="Next 72 hours, soonest first"
+            title={t("shiftsNeedingCaregiver")}
+            subtitle={t("next72SoonestFirst")}
             action={
               <Link className="button button--secondary button--small" href="/scheduling">
-                Open board
+                {t("openBoard")}
               </Link>
             }
           >
             {gaps.length === 0 ? (
               <EmptyState
-                title="Every upcoming shift is assigned"
-                detail="Nothing needs attention in the next 72 hours."
+                title={t("everyShiftAssigned")}
+                detail={t("nothingNext72")}
               />
             ) : (
-              <Table headers={["When", "Service", ""]} caption="Unfilled shifts, next 72 hours">
+              <Table
+                headers={[t("colWhen"), t("colService"), ""]}
+                caption={t("unfilledNext72Caption")}
+              >
                 {gaps.slice(0, 6).map((visit) => (
                   <tr key={visit.id}>
                     <td>{formatDateTime(visit.scheduled_start)}</td>
-                    <td className="muted small">{visit.service_type_code ?? "No code"}</td>
+                    <td className="muted small">{visit.service_type_code ?? t("noServiceCode")}</td>
                     <td>
                       <Link
                         className="button button--secondary button--small"
                         href={`/scheduling?visit=${visit.id}`}
                       >
-                        Fill
+                        {t("fill")}
                       </Link>
                     </td>
                   </tr>
@@ -187,20 +197,20 @@ export default async function DashboardPage() {
           </Card>
 
           <Card
-            title="Credentials needing renewal"
-            subtitle="Expired credentials block assignment immediately"
+            title={t("credentialsNeedingRenewal")}
+            subtitle={t("expiredBlockAssignment")}
             action={
               <Link className="button button--secondary button--small" href="/credentialing">
-                View all
+                {t("viewAll")}
               </Link>
             }
           >
             {expiring.length === 0 ? (
-              <EmptyState title="No credentials expiring in the next 60 days" />
+              <EmptyState title={t("noCredentialsExpiring60")} />
             ) : (
               <Table
-                headers={["Caregiver", "Credential", "Expires", "Status"]}
-                caption="Credentials expiring within 60 days"
+                headers={[t("colCaregiver"), t("colCredential"), t("colExpires"), t("colStatus")]}
+                caption={t("credentialsExpiring60Caption")}
               >
                 {expiring.slice(0, 6).map((credential) => (
                   <tr key={credential.credential_id}>
@@ -209,12 +219,12 @@ export default async function DashboardPage() {
                     <td className="small">{relativeDays(credential.days_until_expiry)}</td>
                     <td>
                       {credential.already_expired ? (
-                        <SeverityBadge severity="critical">Expired</SeverityBadge>
+                        <SeverityBadge severity="critical">{t("expired")}</SeverityBadge>
                       ) : credential.bucket <= 7 ? (
-                        <SeverityBadge severity="warning">7 days</SeverityBadge>
+                        <SeverityBadge severity="warning">{t("sevenDays")}</SeverityBadge>
                       ) : (
                         <SeverityBadge severity="neutral">
-                          {credential.bucket} days
+                          {t("daysCount", { count: credential.bucket })}
                         </SeverityBadge>
                       )}
                     </td>
@@ -227,15 +237,15 @@ export default async function DashboardPage() {
       </>
     );
   } catch (error) {
-    const message = error instanceof ApiError ? error.message : "Could not load the dashboard.";
+    const message = error instanceof ApiError ? error.message : t("couldNotLoadDashboard");
     return (
       <>
         <header className="page-header">
-          <h1 className="page-title">Dashboard</h1>
+          <h1 className="page-title">{t("dashboardTitle")}</h1>
         </header>
         <ErrorNote
           title={message}
-          detail="Check that the CareOS API is running and reachable at CAREOS_API_URL."
+          detail={t("checkApiReachable")}
         />
       </>
     );

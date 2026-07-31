@@ -19,6 +19,7 @@
  */
 
 import type { ReactNode } from "react";
+import type { Translator } from "@/lib/i18n";
 
 import { TimelineMark } from "@/components/timeline-mark";
 
@@ -213,7 +214,15 @@ export function Funnel({
 
 /* --- Score bar: magnitude, compared by length ---------------------------------------- */
 
-export function ScoreBar({ score, segments }: { score: number; segments?: number[] }) {
+export function ScoreBar({
+  score,
+  segments,
+  t,
+}: {
+  score: number;
+  segments?: number[];
+  t: Translator;
+}) {
   const pct = Math.round(score * 100);
   return (
     <div className="scorebar" title={`Match score ${pct} of 100`}>
@@ -234,7 +243,7 @@ export function ScoreBar({ score, segments }: { score: number; segments?: number
       </div>
       <span className="scorebar__value">
         {pct}
-        <span className="visually-hidden"> out of 100 match score</span>
+        <span className="visually-hidden"> {t("outOf100MatchScore")}</span>
       </span>
     </div>
   );
@@ -263,10 +272,12 @@ export function ScheduleTimeline({
   visits,
   days = 7,
   selectedId,
+  t,
 }: {
   visits: TimelineVisit[];
   days?: number;
   selectedId?: string;
+  t: Translator;
 }) {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
@@ -325,7 +336,9 @@ export function ScheduleTimeline({
               />
             ))}
 
-            {bucket.visits.length === 0 && <span className="timeline__quiet">No visits</span>}
+            {bucket.visits.length === 0 && (
+              <span className="timeline__quiet">{t("noVisits")}</span>
+            )}
 
             {bucket.visits.map((visit) => {
               const s = new Date(visit.start);
@@ -360,11 +373,11 @@ export function ScheduleTimeline({
       <div className="timeline__legend">
         <span className="legend__item">
           <span className="legend__swatch legend__swatch--open" aria-hidden="true" />
-          Unfilled
+          {t("unfilled")}
         </span>
         <span className="legend__item">
           <span className="legend__swatch legend__swatch--assigned" aria-hidden="true" />
-          Assigned
+          {t("assigned")}
         </span>
       </div>
     </div>
