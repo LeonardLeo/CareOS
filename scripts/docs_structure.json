@@ -1,0 +1,498 @@
+{
+  "00_README_Index.md": [],
+  "01_Product_Vision_and_Executive_Summary.md": [
+    [
+      "##",
+      "1",
+      "One-paragraph pitch"
+    ],
+    [
+      "##",
+      "2",
+      "The problem, in numbers"
+    ],
+    [
+      "##",
+      "3",
+      "Why this, why now"
+    ],
+    [
+      "##",
+      "4",
+      "Product phases (the full arc \u2014 not just the MVP)"
+    ],
+    [
+      "##",
+      "5",
+      "Who we serve"
+    ],
+    [
+      "##",
+      "6",
+      "Success metrics by phase"
+    ],
+    [
+      "##",
+      "7",
+      "Non-negotiable constraints (apply to every phase)"
+    ],
+    [
+      "##",
+      "8",
+      "How to use this document set"
+    ]
+  ],
+  "02_Product_Requirements_Document.md": [
+    [
+      "##",
+      "0",
+      "How to read this PRD"
+    ],
+    [
+      "##",
+      "1",
+      "Phase 1 \u2014 AI Workforce Engine (MVP)"
+    ],
+    [
+      "##",
+      "2",
+      "Phase 2 \u2014 Ambient Documentation + Compliance Copilot"
+    ],
+    [
+      "##",
+      "3",
+      "Phase 3 \u2014 Revenue Engine (\"full product\")"
+    ],
+    [
+      "##",
+      "4",
+      "Cross-cutting Non-Functional Requirements (apply to all phases)"
+    ],
+    [
+      "##",
+      "5",
+      "Explicit non-goals (all phases, current roadmap horizon)"
+    ],
+    [
+      "##",
+      "6",
+      "Dependencies between phases"
+    ]
+  ],
+  "03_Technical_Architecture.md": [
+    [
+      "##",
+      "1",
+      "Architectural principles"
+    ],
+    [
+      "##",
+      "2",
+      "Recommended tech stack"
+    ],
+    [
+      "##",
+      "3",
+      "High-level system diagram"
+    ],
+    [
+      "##",
+      "4",
+      "Service/module boundaries (modular monolith decomposition)"
+    ],
+    [
+      "##",
+      "5",
+      "AI/ML architecture detail"
+    ],
+    [
+      "##",
+      "6",
+      "Data flow for the core \"golden path\" (Phase 1 \u2192 3 integrated)"
+    ],
+    [
+      "##",
+      "7",
+      "Environments"
+    ],
+    [
+      "##",
+      "8",
+      "Key technical risks and mitigations"
+    ]
+  ],
+  "04_Data_Model_and_Schema.md": [
+    [
+      "##",
+      "1",
+      "Multi-tenancy convention"
+    ],
+    [
+      "##",
+      "2",
+      "Entity-relationship overview"
+    ],
+    [
+      "##",
+      "3",
+      "Core tables (Phase 1)"
+    ],
+    [
+      "##",
+      "4",
+      "Phase 2 tables"
+    ],
+    [
+      "##",
+      "5",
+      "Phase 3 tables (present in schema from the start; unused until Phase 3 build)"
+    ],
+    [
+      "##",
+      "6",
+      "Reference (global, non-tenant) tables"
+    ],
+    [
+      "##",
+      "7",
+      "Audit log (cross-cutting, not tied to one module)"
+    ],
+    [
+      "##",
+      "8",
+      "Migration sequencing guidance for a new team"
+    ]
+  ],
+  "05_API_Specification.md": [
+    [
+      "##",
+      "1",
+      "Conventions"
+    ],
+    [
+      "##",
+      "2",
+      "Auth & Agency (Phase 1 foundation)"
+    ],
+    [
+      "##",
+      "3",
+      "Recruiting & Onboarding (Phase 1)"
+    ],
+    [
+      "##",
+      "4",
+      "Scheduling & EVV (Phase 1)"
+    ],
+    [
+      "##",
+      "5",
+      "Documentation & Compliance (Phase 2)"
+    ],
+    [
+      "##",
+      "6",
+      "Billing & Revenue (Phase 3)"
+    ],
+    [
+      "##",
+      "7",
+      "Webhooks (outbound, for async external processes)"
+    ],
+    [
+      "##",
+      "8",
+      "Versioning & deprecation policy"
+    ],
+    [
+      "##",
+      "9",
+      "Rate limits"
+    ]
+  ],
+  "06_Compliance_and_Regulatory_Requirements.md": [
+    [
+      "##",
+      "1",
+      "Electronic Visit Verification (EVV)"
+    ],
+    [
+      "##",
+      "2",
+      "HIPAA (Health Insurance Portability and Accountability Act)"
+    ],
+    [
+      "##",
+      "3",
+      "CMS Home Health Prospective Payment System (PPS) and related billing rules"
+    ],
+    [
+      "##",
+      "4",
+      "Medicaid variance by state"
+    ],
+    [
+      "##",
+      "5",
+      "Employment and fair-hiring law"
+    ],
+    [
+      "##",
+      "6",
+      "State consent laws for ambient/audio documentation"
+    ],
+    [
+      "##",
+      "7",
+      "SOC 2 Type II"
+    ],
+    [
+      "##",
+      "8",
+      "Data portability and retention"
+    ],
+    [
+      "##",
+      "9",
+      "Compliance ownership and review cadence (recommendation for the team)"
+    ]
+  ],
+  "07_Integration_Specifications.md": [
+    [
+      "##",
+      "1",
+      "Integration architecture principle"
+    ],
+    [
+      "##",
+      "2",
+      "EVV Aggregators (Phase 1 \u2014 critical path)"
+    ],
+    [
+      "##",
+      "3",
+      "Background Check & Credentialing Vendors (Phase 1)"
+    ],
+    [
+      "##",
+      "4",
+      "Job Boards / Recruiting Sources (Phase 1)"
+    ],
+    [
+      "##",
+      "5",
+      "Speech-to-Text / Ambient Documentation Vendor (Phase 2)"
+    ],
+    [
+      "##",
+      "6",
+      "Legacy EHR Import (Phase 1, for migration; ongoing as needed)"
+    ],
+    [
+      "##",
+      "7",
+      "Claims Clearinghouse & Payers (Phase 3)"
+    ],
+    [
+      "##",
+      "8",
+      "Payroll Provider (Phase 3)"
+    ],
+    [
+      "##",
+      "9",
+      "Integration vendor tracking table (fill in during build)"
+    ]
+  ],
+  "08_Security_Architecture.md": [
+    [
+      "##",
+      "1",
+      "Identity & Access Management"
+    ],
+    [
+      "##",
+      "2",
+      "Multi-tenant isolation"
+    ],
+    [
+      "##",
+      "3",
+      "Encryption"
+    ],
+    [
+      "##",
+      "4",
+      "Audit logging"
+    ],
+    [
+      "##",
+      "5",
+      "Application security practices"
+    ],
+    [
+      "##",
+      "6",
+      "Incident response"
+    ],
+    [
+      "##",
+      "7",
+      "Mobile app specific security (caregiver app)"
+    ],
+    [
+      "##",
+      "8",
+      "Vendor/subprocessor security review"
+    ],
+    [
+      "##",
+      "9",
+      "Path to SOC 2 Type II (see also `06_Compliance_and_Regulatory_Requirements.md`, Section 7)"
+    ]
+  ],
+  "09_UX_Design_and_User_Flows.md": [
+    [
+      "##",
+      "1",
+      "Personas"
+    ],
+    [
+      "##",
+      "2",
+      "Design principles"
+    ],
+    [
+      "##",
+      "3",
+      "Core user flows"
+    ],
+    [
+      "##",
+      "4",
+      "Key screens inventory (for design/eng sprint planning)"
+    ],
+    [
+      "##",
+      "5",
+      "Handoff note for the incoming design team"
+    ]
+  ],
+  "10_Roadmap_Milestones_Team_Plan.md": [
+    [
+      "##",
+      "1",
+      "Phase gates and success thresholds"
+    ],
+    [
+      "##",
+      "2",
+      "Detailed milestone breakdown \u2014 Phase 1 (Months 0\u20139)"
+    ],
+    [
+      "##",
+      "3",
+      "Detailed milestone breakdown \u2014 Phase 2 (Months 9\u201318)"
+    ],
+    [
+      "##",
+      "4",
+      "Detailed milestone breakdown \u2014 Phase 3 (Months 18\u201330)"
+    ],
+    [
+      "##",
+      "5",
+      "Team/hiring plan by phase"
+    ],
+    [
+      "##",
+      "6",
+      "Budget/resourcing considerations (high-level; refine with finance)"
+    ],
+    [
+      "##",
+      "7",
+      "Risk register (top-level; see architecture and compliance docs for detail)"
+    ],
+    [
+      "##",
+      "8",
+      "How to use this document if you're a new team taking over mid-build"
+    ]
+  ],
+  "11_GTM_and_Pricing_Strategy.md": [
+    [
+      "##",
+      "1",
+      "Ideal customer profile (ICP)"
+    ],
+    [
+      "##",
+      "2",
+      "Positioning"
+    ],
+    [
+      "##",
+      "3",
+      "Pricing model"
+    ],
+    [
+      "##",
+      "4",
+      "Go-to-market motion by stage"
+    ],
+    [
+      "##",
+      "5",
+      "Marketing and category-building"
+    ],
+    [
+      "##",
+      "6",
+      "Competitive positioning notes"
+    ],
+    [
+      "##",
+      "7",
+      "Metrics to track from day one"
+    ]
+  ],
+  "12_Engineering_Handoff_Guide.md": [
+    [
+      "##",
+      "1",
+      "Purpose of this document"
+    ],
+    [
+      "##",
+      "2",
+      "Reading order for a new team"
+    ],
+    [
+      "##",
+      "3",
+      "First-week checklist for an incoming team"
+    ],
+    [
+      "##",
+      "4",
+      "Repository and environment conventions (recommended if not already established)"
+    ],
+    [
+      "##",
+      "5",
+      "Keeping this document set current (so the NEXT handoff, if any, is just as smooth)"
+    ],
+    [
+      "##",
+      "6",
+      "What \"done\" looks like for the full product (not just MVP)"
+    ],
+    [
+      "##",
+      "7",
+      "Document index"
+    ]
+  ],
+  "BUILD_STATUS.md": []
+}
