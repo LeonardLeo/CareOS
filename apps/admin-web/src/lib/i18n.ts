@@ -413,6 +413,10 @@ const EN = {
     mfaStartExplainer:
       "You will get a secret to add to your authenticator app, and ten recovery codes to keep somewhere safe.",
     mfaStart: "Set up authenticator",
+    mfaReplace: "Replace authenticator",
+    mfaReplaceExplainer:
+      "Pairing a new device replaces the one you have now, along with your recovery codes. Enter a code from your current authenticator — or one of your recovery codes — to confirm it is you.",
+    mfaCurrentCodeLabel: "Code from your current authenticator",
     mfaScanExplainer:
       "Add this secret to your authenticator app, then enter the six-digit code it shows.",
     mfaSecretLabel: "Secret",
@@ -852,6 +856,10 @@ const ES: Record<StringKey, string> = {
     mfaStartExplainer:
       "Recibirá una clave para agregar a su aplicación de autenticación y diez códigos de recuperación para guardar en un lugar seguro.",
     mfaStart: "Configurar autenticación",
+    mfaReplace: "Reemplazar autenticación",
+    mfaReplaceExplainer:
+      "Vincular un dispositivo nuevo reemplaza el actual y sus códigos de recuperación. Escriba un código de su aplicación actual — o uno de sus códigos de recuperación — para confirmar que es usted.",
+    mfaCurrentCodeLabel: "Código de su aplicación actual",
     mfaScanExplainer:
       "Agregue esta clave a su aplicación de autenticación y luego escriba el código de seis dígitos que muestra.",
     mfaSecretLabel: "Clave",

@@ -122,6 +122,17 @@ EXPECTED_ACCESS: dict[str, list[str]] = {
         "scheduler",
     ],
     "POST /v1/job-postings": ["owner_admin", "scheduler"],
+    # Every role can read its own record. The user *list* is owner-admin and auditor only, so
+    # without this a clinical supervisor could not discover their own MFA state — and a client
+    # that cannot tell whether it is enrolled cannot know to ask for the current code.
+    "GET /v1/auth/me": [
+        "auditor",
+        "billing_rcm",
+        "caregiver",
+        "clinical_supervisor",
+        "owner_admin",
+        "scheduler",
+    ],
     # Three roles must enrol; every role with a client that can ask for a code may. That
     # excludes `caregiver`: the caregiver app has no field for one, so enrolling would lock
     # them out of the phone they clock in with. These are also the only two routes carrying

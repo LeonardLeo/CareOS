@@ -275,8 +275,14 @@ export interface ReviewStatus {
 /* --- Endpoint wrappers --------------------------------------------------------------- */
 
 export const api = {
-  startMfaEnrolment: (token: string) =>
-    apiFetch<MfaEnrolmentStarted>("/v1/auth/mfa/enroll", { token, method: "POST" }),
+  me: (token: string) => apiFetch<AgencyUser>("/v1/auth/me", { token }),
+
+  startMfaEnrolment: (token: string, currentCode?: string) =>
+    apiFetch<MfaEnrolmentStarted>("/v1/auth/mfa/enroll", {
+      token,
+      method: "POST",
+      body: { current_code: currentCode ?? null },
+    }),
 
   confirmMfaEnrolment: (token: string, code: string) =>
     apiFetch<TokenPair>("/v1/auth/mfa/confirm", { token, method: "POST", body: { code } }),

@@ -19,6 +19,7 @@ from careos.core.errors import (
     AccountInactiveError,
     AuthenticationError,
     ConflictError,
+    MFAInvalidCodeError,
     MFARequiredError,
     PermissionDeniedError,
     ValidationError,
@@ -400,7 +401,11 @@ async def enable_user(
 
 
 async def begin_mfa_enrolment(
-    session: AsyncSession, *, principal: Principal, user: AppUser
+    session: AsyncSession,
+    *,
+    principal: Principal,
+    user: AppUser,
+    current_code: str | None = None,
 ) -> tuple[str, str, list[str]]:
     """Issue a TOTP secret and recovery codes. Returns (secret, otpauth URI, recovery codes).
 
@@ -409,10 +414,20 @@ async def begin_mfa_enrolment(
     anyone who closed the tab before scanning — with no way back in, since the requirement they
     would then fail is the one that gates every endpoint.
 
-    Re-enrolling replaces the secret and the recovery codes. That is the recovery path for a
-    lost phone when the codes are gone too: an administrator disables MFA for the user, who
-    then enrols afresh. It also means a stale secret cannot linger next to a live one.
+    Re-enrolling replaces the secret and the recovery codes, and **an account that is already
+    enrolled must prove the factor it currently has**. Without that check a session token is
+    enough to move somebody's MFA onto another device: the thief enrols their own
+    authenticator, receives ten fresh recovery codes, and now holds the second factor that was
+    supposed to contain them. Verified against the running API before it was fixed — a bare
+    session replaced the secret and returned new codes.
+
+    The proof goes through the same path a login does, so a TOTP code is spent against the
+    replay counter and a recovery code is consumed. Re-enrolling therefore costs one of them,
+    which is correct: it is an authentication.
     """
+    if user.mfa_enrolled:
+        assert_mfa_satisfied(user, code=current_code)
+
     secret = mfa.generate_secret()
     recovery_codes = mfa.generate_recovery_codes()
 
@@ -451,7 +466,7 @@ async def confirm_mfa_enrolment(
 
     counter = mfa.verify_code(secret, code, last_counter=user.mfa_last_counter)
     if counter is None:
-        raise MFARequiredError("That code is not valid. Check your authenticator app's clock.")
+        raise MFAInvalidCodeError("That code is not valid. Check your authenticator app's clock.")
 
     user.mfa_enrolled = True
     user.mfa_last_counter = counter
@@ -516,4 +531,4 @@ def assert_mfa_satisfied(user: AppUser, *, code: str | None) -> None:
     if _consume_recovery_code(user, code):
         return
 
-    raise MFARequiredError("That code is not valid.")
+    raise MFAInvalidCodeError("That code is not valid.")

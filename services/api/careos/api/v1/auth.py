@@ -12,6 +12,8 @@ from careos.core.context import source_ip_var
 from careos.core.errors import (
     AccountInactiveError,
     AuthenticationError,
+    MFAInvalidCodeError,
+    MFARequiredError,
     RateLimitExceededError,
 )
 from careos.core.ratelimit import get_rate_limiter
@@ -19,7 +21,12 @@ from careos.core.rbac import public, requires
 from careos.core.security import Principal, create_token, decode_token
 from careos.db.session import privileged_session, tenant_session
 from careos.modules.agency import service as agency_service
-from careos.modules.agency.models import MFA_ELIGIBLE_ROLES, MFA_REQUIRED_ROLES, AppUser
+from careos.modules.agency.models import (
+    MFA_ELIGIBLE_ROLES,
+    MFA_REQUIRED_ROLES,
+    AppUser,
+    Role,
+)
 
 router = APIRouter(tags=["auth"])
 
@@ -63,6 +70,17 @@ async def login(payload: schemas.LoginRequest) -> schemas.TokenPair:
             agency_service.assert_mfa_satisfied(user, code=payload.mfa_code)
             user_id, agency_id, role = user.id, user.agency_id, user.role
             mfa_satisfied = user.mfa_enrolled or role not in MFA_REQUIRED_ROLES
+    except MFAInvalidCodeError:
+        # A valid password and a wrong code. Recorded: that is somebody guessing at the second
+        # factor while holding the first, which is precisely what the audit trail is for.
+        async with privileged_session() as session:
+            await agency_service.record_failed_login(session, email=payload.email)
+        raise
+    except MFARequiredError:
+        # No code supplied. Not a failure — it is the first half of a normal sign-in, since a
+        # client cannot know an account is enrolled until it tries. Recording it would write a
+        # "login failed" row per enrolled person per day and bury the ones that matter.
+        raise
     except AuthenticationError:
         async with privileged_session() as session:
             await agency_service.record_failed_login(session, email=payload.email)
@@ -150,6 +168,7 @@ async def create_agency(payload: schemas.AgencyCreate) -> schemas.AgencyOut:
 
 @router.post("/auth/mfa/enroll", response_model=schemas.MFAEnrolmentStarted)
 async def start_mfa_enrolment(
+    payload: schemas.MFAEnrolStart | None = None,
     principal: Principal = Depends(requires(*MFA_ELIGIBLE_ROLES, mfa_exempt=True)),
     session: AsyncSession = Depends(db_session),
 ) -> schemas.MFAEnrolmentStarted:
@@ -167,14 +186,19 @@ async def start_mfa_enrolment(
 
     Re-enrolling replaces any previous secret and recovery codes, and clears the enrolled flag
     until a code is confirmed — so an abandoned enrolment cannot leave an account holding a
-    secret nobody has.
+    secret nobody has. An account that is **already** enrolled must send `current_code`: moving
+    a second factor to a new device is an authentication, and without that check a stolen
+    session is enough to move it to the thief's.
     """
     user = await session.get(AppUser, principal.user_id)
     if user is None:
         raise AuthenticationError("This account is no longer active")
 
     secret, uri, recovery_codes = await agency_service.begin_mfa_enrolment(
-        session, principal=principal, user=user
+        session,
+        principal=principal,
+        user=user,
+        current_code=payload.current_code if payload else None,
     )
     return schemas.MFAEnrolmentStarted(
         secret=secret, otpauth_uri=uri, recovery_codes=recovery_codes
@@ -212,3 +236,24 @@ async def confirm_mfa_enrolment(
         refresh_token=refresh_token,
         expires_in=get_settings().access_token_ttl_seconds,
     )
+
+
+@router.get("/auth/me", response_model=schemas.UserOut)
+async def whoami(
+    principal: Principal = Depends(requires(*Role, mfa_exempt=True)),
+    session: AsyncSession = Depends(db_session),
+) -> schemas.UserOut:
+    """The caller's own user record.
+
+    Exists because a client cannot otherwise learn its own MFA state: the user list is
+    owner-admin and auditor only, correctly, so a clinical supervisor had no way to find out
+    whether they were enrolled — and therefore no way to know whether to ask for the current
+    code before replacing an authenticator.
+
+    `mfa_exempt` for the same reason the enrolment routes are: a session held to the enrolment
+    screen has to be able to render that screen.
+    """
+    user = await session.get(AppUser, principal.user_id)
+    if user is None:
+        raise AuthenticationError("This account is no longer active")
+    return schemas.UserOut.model_validate(user)

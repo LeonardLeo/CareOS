@@ -511,6 +511,12 @@ correct for a deployment, noise for a database seeded ten seconds ago. TOTP veri
 login happens either way; the flag governs only whether an *unenrolled* privileged user is
 confined to enrolment.
 
+**Replacing an authenticator requires the one in force.** Enrolling over an existing factor is
+an authentication, not a preference: without that check a stolen session was enough to move
+somebody's MFA onto the thief's device and collect fresh recovery codes on the way — verified
+against the running API before it was fixed. A recovery code is accepted as the proof, because
+the person who most needs to pair a new device is the one whose phone is gone.
+
 Caregivers are excluded from enrolling at all, and that is a guard rather than a policy: the
 caregiver app has no field to type a code into, so a caregiver who enrolled through the API
 would be locked out of the phone they clock in with — discovered at a client's door. Extending

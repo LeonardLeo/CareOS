@@ -143,6 +143,18 @@ class MFAEnrolmentStarted(BaseModel):
     recovery_codes: list[str]
 
 
+class MFAEnrolStart(BaseModel):
+    """Optional proof of the factor currently in force.
+
+    Required by the server when the account is already enrolled, ignored when it is not. That
+    asymmetry is the whole point: replacing a second factor is as security-sensitive as using
+    it, and without this a stolen session could swap MFA onto the thief's device — and collect
+    ten fresh recovery codes on the way.
+    """
+
+    current_code: str | None = Field(default=None, max_length=32)
+
+
 class MFAConfirm(BaseModel):
     code: str = Field(min_length=6, max_length=10)
 

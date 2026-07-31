@@ -74,14 +74,28 @@ class MFAEnrolmentRequiredError(CareOSError):
 
 
 class MFARequiredError(AuthenticationError):
-    """Correct password, and the account has MFA — the code is missing or wrong.
+    """Correct password, and the account has MFA — no code was supplied.
 
     Reached only after the password verifies, so it discloses nothing to someone guessing.
     Separate from `AUTHENTICATION_REQUIRED` so a sign-in screen can ask for the code instead
     of telling the user their password was wrong, which it was not.
+
+    **Not a failed sign-in attempt.** It is the first half of a normal two-step sign-in: the
+    client cannot know an account is enrolled until it tries. Recording it as a failure would
+    write one "login failed" row per person per day and make the real ones unfindable.
     """
 
     code = "MFA_REQUIRED"
+
+
+class MFAInvalidCodeError(MFARequiredError):
+    """A code was supplied and it was wrong.
+
+    The same wire code as its parent, so a client has one branch to write — asking for the code
+    again is the right response either way. Distinct as a Python type because the server needs
+    to tell them apart: somebody holding a valid password and guessing at codes is exactly the
+    event the audit log and the brute-force limiter exist for.
+    """
 
 
 class NotFoundError(CareOSError):

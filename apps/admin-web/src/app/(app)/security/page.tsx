@@ -5,7 +5,13 @@
  * and billing/RCM. The API enforces it; this is the only place a person can actually satisfy
  * it, which is the difference between a requirement and a lockout.
  *
- * Two things about the layout are deliberate.
+ * Three things about it are deliberate.
+ *
+ * **The secret is minted once, by a POST, and read here — never minted by this render.** The
+ * first version called the enrolment endpoint from the page. That endpoint replaces the stored
+ * secret on every call, by design, so each refresh — and the redirect after a mistyped code —
+ * silently invalidated the secret the user had already scanned, turning one typo into an
+ * authenticator that could never produce an accepted code. See `lib/mfa-enrolment.ts`.
  *
  * **The secret is shown as text, not only as a QR code.** There is no QR here at all: rendering
  * one needs an encoder this app does not have, and manual entry works in every authenticator.
@@ -20,9 +26,10 @@
 
 import { redirect } from "next/navigation";
 import { Card, ErrorNote, SeverityBadge } from "@/components/ui";
-import { ApiError, api } from "@/lib/api";
 import { translatorFor } from "@/lib/i18n";
 import { getLocale } from "@/lib/locale";
+import { api } from "@/lib/api";
+import { getPendingEnrolment } from "@/lib/mfa-enrolment";
 import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -30,32 +37,23 @@ export const dynamic = "force-dynamic";
 export default async function SecurityPage({
   searchParams,
 }: {
-  searchParams: Promise<{ started?: string; required?: string; done?: string; error?: string }>;
+  searchParams: Promise<{ required?: string; done?: string; error?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
   const t = translatorFor(await getLocale());
-  const { started, required, done, error } = await searchParams;
+  const { required, done, error } = await searchParams;
 
-  // The secret only exists inside the response that created it, so starting enrolment is a
-  // POST from the button below rather than something this page does on load — a page that
-  // minted a new secret every time it was opened would invalidate the one being scanned.
-  let enrolment: Awaited<ReturnType<typeof api.startMfaEnrolment>> | null = null;
-  if (started) {
-    try {
-      enrolment = await api.startMfaEnrolment(session.token);
-    } catch (err) {
-      const message = err instanceof ApiError ? err.message : t("somethingWentWrong");
-      return (
-        <>
-          <header className="page-header">
-            <h1 className="page-title">{t("securityTitle")}</h1>
-          </header>
-          <ErrorNote title={t("couldNotCompleteStep")} detail={message} />
-        </>
-      );
-    }
-  }
+  // Read, never minted. Starting enrolment is a POST to /api/mfa/start; this page only
+  // renders what that POST produced. The first version called the API from here, which meant
+  // every refresh — and every redirect after a mistyped code — replaced the secret the user
+  // had already scanned, so their authenticator could never produce an accepted code again.
+  const enrolment = await getPendingEnrolment();
+  // Whether this account already has a second factor decides what the start form asks for.
+  // Read from `/auth/me` because the user list is owner-admin only — a clinical supervisor
+  // has no other way to learn their own state.
+  const me = await api.me(session.token).catch(() => null);
+  const alreadyEnrolled = me?.mfa_enrolled === true;
 
   return (
     <>
@@ -85,10 +83,28 @@ export default async function SecurityPage({
           {!enrolment ? (
             <form method="post" action="/api/mfa/start">
               <p className="small muted" style={{ marginBottom: "var(--space-4)" }}>
-                {t("mfaStartExplainer")}
+                {alreadyEnrolled ? t("mfaReplaceExplainer") : t("mfaStartExplainer")}
               </p>
+              {alreadyEnrolled && (
+                // Replacing an authenticator requires proving the one in force. Without it a
+                // stolen session could move MFA onto the thief's device and collect fresh
+                // recovery codes on the way.
+                <div className="field">
+                  <label className="field__label" htmlFor="current_code">
+                    {t("mfaCurrentCodeLabel")}
+                  </label>
+                  <input
+                    className="field__input"
+                    id="current_code"
+                    name="current_code"
+                    inputMode="text"
+                    autoComplete="one-time-code"
+                    required
+                  />
+                </div>
+              )}
               <button className="button" type="submit">
-                {t("mfaStart")}
+                {alreadyEnrolled ? t("mfaReplace") : t("mfaStart")}
               </button>
             </form>
           ) : (
@@ -100,7 +116,7 @@ export default async function SecurityPage({
               {/* Grouped in fours: this gets typed by hand into a phone. */}
               <p className="mono-block">{enrolment.secret.match(/.{1,4}/g)?.join(" ")}</p>
               <p className="field__label">{t("mfaUriLabel")}</p>
-              <p className="mono-block mono-block--wrap">{enrolment.otpauth_uri}</p>
+              <p className="mono-block mono-block--wrap">{enrolment.otpauthUri}</p>
 
               <form method="post" action="/api/mfa/confirm" style={{ marginTop: "var(--space-5)" }}>
                 <div className="field">
@@ -136,7 +152,7 @@ export default async function SecurityPage({
                 <span>{t("recoveryCodesWarning")}</span>
               </div>
               <ul className="codelist">
-                {enrolment.recovery_codes.map((code) => (
+                {enrolment.recoveryCodes.map((code) => (
                   <li key={code} className="mono-block">
                     {code}
                   </li>

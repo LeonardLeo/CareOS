@@ -10,7 +10,7 @@ intentions.
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
 **Last updated:** 2026-07-31
-**Assessed by:** build increment 19 (MFA enforcement)
+**Assessed by:** build increment 19 (MFA enforcement, with three post-ship fixes)
 
 ---
 
@@ -21,7 +21,7 @@ intentions.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 388 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
+| Tests | 394 API tests against real PostgreSQL and real Redis instances, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
 | Lint / types | `ruff` and `mypy` clean |
 | Clients | **Admin web app and caregiver app both built and working.** Caregiver app is an installable PWA, not React Native — see below |
 | Compliance review | **Not performed** |
@@ -521,6 +521,26 @@ setting it or reading it — a column describing an intention.
   enrol from the secret shown, reach the rest of the app on the session confirming hands back,
   then sign out and back in with a code — including the prompt that asks for one instead of
   claiming the password was wrong.
+
+**Three defects found after the first version shipped, all by exercising it rather than reading
+it.** Recorded because each one was invisible to a passing test suite:
+
+1. **A stolen session could replace the second factor.** `POST /auth/mfa/enroll` needed only a
+   token: an attacker with a session enrolled their own authenticator, received ten fresh
+   recovery codes, and left the real owner locked out by a device they had never seen. That is
+   MFA defeated by the exact thing it exists to survive. Re-enrolment now requires proving the
+   factor in force — a TOTP code or a recovery code, spent the same way a login spends one —
+   and a recovery code is accepted so that a lost phone still leads somewhere.
+2. **The enrolment screen re-minted the secret on every render.** The page called the enrolment
+   endpoint directly, and that endpoint replaces the stored secret by design, so a refresh —
+   or the redirect after one mistyped code — silently invalidated the secret the user had just
+   scanned. One typo became an authenticator that could never produce an accepted code. The
+   secret is now minted once by a POST and held in an httpOnly cookie until confirmed.
+3. **Every ordinary sign-in wrote a "login failed" audit row.** An enrolled user's first
+   request cannot carry a code, and that was being recorded as a failed attempt — one per
+   person per day, burying the rows an investigation would be looking for. A *wrong* code is
+   still recorded, because that is somebody guessing at the second factor while holding the
+   first.
 
 **No QR code.** The enrolment screen shows the secret and the `otpauth://` URI as text, which
 every authenticator accepts by manual entry and every password manager accepts by paste.

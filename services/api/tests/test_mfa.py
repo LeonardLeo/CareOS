@@ -486,3 +486,167 @@ async def test_a_caregiver_cannot_enrol_and_lock_themselves_out_of_the_phone(
 
     refused = await client.post("/v1/auth/mfa/enroll", headers=headers)
     assert refused.status_code == 403
+
+
+async def test_a_normal_sign_in_is_not_recorded_as_a_failed_login(
+    client, tenant_a: TenantFixture
+) -> None:
+    """An enrolled user signs in in two steps. Neither is a failure.
+
+    The first request cannot carry a code — a client has no way to know an account is enrolled
+    until it tries — so treating it as a failed attempt writes one `user.login_failed` row per
+    enrolled person per day. That buries the rows an investigation is actually looking for, and
+    it is a lie about what the person did.
+    """
+    _user_id, email = await _invite(client, tenant_a, "clinical_supervisor")
+    first = await client.post("/v1/auth/login", json={"email": email, "password": PASSWORD})
+    headers = {"Authorization": f"Bearer {first.json()['access_token']}"}
+    secret, _codes = await _enrol(client, headers)
+
+    before = await _failed_login_count(tenant_a)
+
+    prompted = await client.post("/v1/auth/login", json={"email": email, "password": PASSWORD})
+    assert prompted.status_code == 401
+    completed = await client.post(
+        "/v1/auth/login",
+        json={"email": email, "password": PASSWORD, "mfa_code": _next_code(secret)},
+    )
+    assert completed.status_code == 200, completed.text
+
+    assert await _failed_login_count(tenant_a) == before
+
+
+async def test_a_wrong_code_is_recorded_as_a_failed_login(client, tenant_a: TenantFixture) -> None:
+    """The other half, and the one that matters.
+
+    Someone supplying a valid password and guessing at codes is exactly the event the audit
+    trail exists for. Suppressing this along with the harmless case would trade audit noise
+    for audit blindness.
+    """
+    _user_id, email = await _invite(client, tenant_a, "clinical_supervisor")
+    first = await client.post("/v1/auth/login", json={"email": email, "password": PASSWORD})
+    headers = {"Authorization": f"Bearer {first.json()['access_token']}"}
+    await _enrol(client, headers)
+
+    before = await _failed_login_count(tenant_a)
+
+    guessed = await client.post(
+        "/v1/auth/login", json={"email": email, "password": PASSWORD, "mfa_code": "000000"}
+    )
+    assert guessed.status_code == 401
+
+    assert await _failed_login_count(tenant_a) == before + 1
+
+
+async def _failed_login_count(tenant: TenantFixture) -> int:
+    from sqlalchemy import select
+
+    async with tenant_session(tenant.agency_id) as session:
+        rows = await session.execute(select(AuditLog).where(AuditLog.action == "user.login_failed"))
+        return len(rows.scalars().all())
+
+
+# --- Replacing an authenticator ---------------------------------------------------------------
+
+
+async def test_re_enrolling_requires_the_factor_already_in_force(
+    client, tenant_a: TenantFixture
+) -> None:
+    """A session alone must not be enough to move somebody's MFA to another device.
+
+    Found by running the attack against the live API rather than by reading the code: with only
+    a token, `POST /auth/mfa/enroll` replaced the secret and returned ten fresh recovery codes.
+    That is MFA defeated by exactly the thing it is meant to survive — a stolen session — and
+    it leaves the real owner locked out of their own account by the thief's authenticator.
+    """
+    _user_id, email = await _invite(client, tenant_a, "clinical_supervisor")
+    first = await client.post("/v1/auth/login", json={"email": email, "password": PASSWORD})
+    headers = {"Authorization": f"Bearer {first.json()['access_token']}"}
+    secret, recovery_codes = await _enrol(client, headers)
+
+    stolen_session = await client.post("/v1/auth/mfa/enroll", headers=headers)
+    assert stolen_session.status_code == 401, "a bare session replaced the second factor"
+    assert stolen_session.json()["error"]["code"] == "MFA_REQUIRED"
+
+    wrong = await client.post(
+        "/v1/auth/mfa/enroll", headers=headers, json={"current_code": "000000"}
+    )
+    assert wrong.status_code == 401
+
+    # The real owner, holding the current authenticator, can still replace it.
+    replaced = await client.post(
+        "/v1/auth/mfa/enroll", headers=headers, json={"current_code": _next_code(secret)}
+    )
+    assert replaced.status_code == 200, replaced.text
+    assert replaced.json()["secret"] != secret
+    assert replaced.json()["recovery_codes"] != recovery_codes
+
+
+async def test_a_recovery_code_also_authorises_replacing_the_authenticator(
+    client, tenant_a: TenantFixture
+) -> None:
+    """The lost-phone path has to lead somewhere.
+
+    Someone whose phone is gone cannot produce a TOTP code, and if that were the only accepted
+    proof then the recovery codes would let them sign in and do nothing — including the one
+    thing they need, which is to pair a new device.
+    """
+    _user_id, email = await _invite(client, tenant_a, "billing_rcm")
+    first = await client.post("/v1/auth/login", json={"email": email, "password": PASSWORD})
+    headers = {"Authorization": f"Bearer {first.json()['access_token']}"}
+    _secret, recovery_codes = await _enrol(client, headers)
+
+    replaced = await client.post(
+        "/v1/auth/mfa/enroll", headers=headers, json={"current_code": recovery_codes[0]}
+    )
+    assert replaced.status_code == 200, replaced.text
+    new_secret = replaced.json()["secret"]
+    new_codes = replaced.json()["recovery_codes"]
+
+    # The whole set is reissued, not just the one that was spent — a new authenticator gets a
+    # new set of codes, and the printout from the old device is dead paper.
+    assert set(new_codes).isdisjoint(recovery_codes)
+
+    await client.post(
+        "/v1/auth/mfa/confirm", headers=headers, json={"code": mfa.code_at(new_secret)}
+    )
+
+    stale = await client.post(
+        "/v1/auth/login", json={"email": email, "password": PASSWORD, "mfa_code": recovery_codes[1]}
+    )
+    assert stale.status_code == 401, "a recovery code from the replaced authenticator still worked"
+
+    fresh = await client.post(
+        "/v1/auth/login", json={"email": email, "password": PASSWORD, "mfa_code": new_codes[0]}
+    )
+    assert fresh.status_code == 200, fresh.text
+
+
+async def test_a_first_enrolment_needs_no_current_code(client, tenant_a: TenantFixture) -> None:
+    """Obvious, and worth pinning: the guard must not make enrolling impossible."""
+    _user_id, email = await _invite(client, tenant_a, "scheduler")
+    first = await client.post("/v1/auth/login", json={"email": email, "password": PASSWORD})
+    headers = {"Authorization": f"Bearer {first.json()['access_token']}"}
+
+    started = await client.post("/v1/auth/mfa/enroll", headers=headers)
+    assert started.status_code == 200
+
+
+async def test_a_user_can_read_their_own_mfa_state(client, tenant_a: TenantFixture) -> None:
+    """A client that cannot tell whether it is enrolled cannot ask for the right thing.
+
+    The user list is owner-admin and auditor only, so without this a clinical supervisor had no
+    way to find out — and the enrolment screen would have to guess.
+    """
+    _user_id, email = await _invite(client, tenant_a, "clinical_supervisor")
+    first = await client.post("/v1/auth/login", json={"email": email, "password": PASSWORD})
+    headers = {"Authorization": f"Bearer {first.json()['access_token']}"}
+
+    before = await client.get("/v1/auth/me", headers=headers)
+    assert before.status_code == 200
+    assert before.json()["email"] == email
+    assert before.json()["mfa_enrolled"] is False
+
+    await _enrol(client, headers)
+    after = await client.get("/v1/auth/me", headers=headers)
+    assert after.json()["mfa_enrolled"] is True
