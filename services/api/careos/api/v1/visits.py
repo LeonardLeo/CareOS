@@ -14,7 +14,7 @@ properties they must keep:
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy import func, select
@@ -25,7 +25,7 @@ from careos.api.deps import db_session
 from careos.core import idempotency
 from careos.core.audit import AuditAction, record_audit
 from careos.core.crypto import decrypt_field
-from careos.core.errors import NotFoundError, PermissionDeniedError
+from careos.core.errors import NotFoundError, PermissionDeniedError, ValidationError
 from careos.core.rbac import requires
 from careos.core.security import Principal
 from careos.modules.agency.models import Role
@@ -44,6 +44,15 @@ from careos.modules.scheduling.models import (
 )
 
 router = APIRouter(tags=["visits"])
+
+#: Days of lookahead when `/my-visits` is called with no window. Wide enough that a caregiver
+#: who opens the app on the train home has tomorrow cached, narrow enough that the response
+#: stays a schedule rather than an employment history.
+DEFAULT_MY_VISITS_LOOKAHEAD_DAYS = 6
+
+#: Hard ceiling on an explicitly requested `/my-visits` window. The response is unpaginated
+#: and carries client names and addresses, so the bound is what keeps its size predictable.
+MAX_MY_VISITS_WINDOW_DAYS = 31
 
 
 async def _load_visit(
@@ -148,6 +157,13 @@ async def my_visits(
     The whole window is returned unpaginated by design. The app stores these for offline use,
     and a page boundary in the middle of a caregiver's day would leave part of it unavailable
     exactly when connectivity is gone.
+
+    That is only safe because the window is bounded. With no bounds this returned every visit
+    the caregiver had ever been assigned — an unpaginated PHI response that grows for the life
+    of the employment, and which the app rendered under a heading that said "Today". Omitting
+    both bounds now means today plus a week of lookahead, which is what a day-at-a-time app
+    with an offline cache actually needs, and an explicit window is capped at
+    `MAX_MY_VISITS_WINDOW_DAYS`.
     """
     if principal.caregiver_id is None:
         # Unreachable through the role gate above, which is the point: a caregiver token
@@ -155,11 +171,30 @@ async def my_visits(
         # — i.e. the agency's unassigned work — so this fails loudly instead.
         raise PermissionDeniedError("This caregiver account is not linked to a caregiver record")
 
-    filters = [ScheduledVisit.caregiver_id == principal.caregiver_id]
-    if date_from is not None:
-        filters.append(func.date(ScheduledVisit.scheduled_start) >= date_from)
-    if date_to is not None:
-        filters.append(func.date(ScheduledVisit.scheduled_start) <= date_to)
+    today = datetime.now(UTC).date()
+    window_start = date_from if date_from is not None else today
+    window_end = (
+        date_to
+        if date_to is not None
+        else window_start + timedelta(days=DEFAULT_MY_VISITS_LOOKAHEAD_DAYS)
+    )
+    if window_end < window_start:
+        raise ValidationError(
+            "The end of the window is before its start",
+            details={"from": window_start.isoformat(), "to": window_end.isoformat()},
+        )
+    span = (window_end - window_start).days + 1
+    if span > MAX_MY_VISITS_WINDOW_DAYS:
+        raise ValidationError(
+            f"A schedule window may cover at most {MAX_MY_VISITS_WINDOW_DAYS} days",
+            details={"requested_days": span, "limit": MAX_MY_VISITS_WINDOW_DAYS},
+        )
+
+    filters = [
+        ScheduledVisit.caregiver_id == principal.caregiver_id,
+        func.date(ScheduledVisit.scheduled_start) >= window_start,
+        func.date(ScheduledVisit.scheduled_start) <= window_end,
+    ]
 
     rows = (
         (

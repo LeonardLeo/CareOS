@@ -31,6 +31,7 @@ const STRINGS = {
     noVisitsToday: "No visits scheduled for today.",
     scheduleFrom: "Schedule as of {time}",
     showingCached: "Showing your saved schedule. It will update when you are back online.",
+    laterVisits: "{count} more saved for the days ahead",
 
     offline: "Offline",
     online: "Online",
@@ -81,6 +82,7 @@ const STRINGS = {
     noVisitsToday: "No hay visitas programadas para hoy.",
     scheduleFrom: "Horario al {time}",
     showingCached: "Mostrando su horario guardado. Se actualizará cuando vuelva a tener señal.",
+    laterVisits: "{count} más guardadas para los próximos días",
 
     offline: "Sin conexión",
     online: "Con conexión",

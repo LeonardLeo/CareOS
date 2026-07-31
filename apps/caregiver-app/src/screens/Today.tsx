@@ -1,6 +1,7 @@
 import type { MyVisit } from "@/lib/api";
 import type { Translator } from "@/lib/i18n";
 import type { OutboxAction } from "@/lib/outbox";
+import { splitByToday } from "@/lib/schedule";
 
 /**
  * Today's schedule.
@@ -45,7 +46,7 @@ export function Today({
   t: Translator;
   locale: string;
 }) {
-  const ordered = [...visits].sort((a, b) => a.scheduled_start.localeCompare(b.scheduled_start));
+  const { today: ordered, laterCount } = splitByToday(visits);
   const nextId = ordered.find((v) => !v.clock_out_time)?.id ?? null;
 
   return (
@@ -62,17 +63,17 @@ export function Today({
 
       <div className="page">
         <h1 className="page__title">{t("today")}</h1>
-        {cachedAt ? (
-          <p className="page__sub">{t("scheduleFrom", { time: timeOf(cachedAt, locale) })}</p>
-        ) : (
-          <p className="page__sub">
-            {new Date().toLocaleDateString(locale, {
-              weekday: "long",
-              month: "long",
-              day: "numeric",
-            })}
-          </p>
-        )}
+        {/* The date is shown whether or not the data is cached. How stale the schedule is and
+            which day it covers are different questions, and the second one is the one a
+            caregiver looking at a list of times needs answered. */}
+        <p className="page__sub">
+          {new Date().toLocaleDateString(locale, {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+          })}
+          {cachedAt ? ` · ${t("scheduleFrom", { time: timeOf(cachedAt, locale) })}` : ""}
+        </p>
 
         {cachedAt && (
           <div className="note note--queued" style={{ marginBottom: "var(--space-4)" }}>
@@ -121,6 +122,13 @@ export function Today({
               );
             })}
           </div>
+        )}
+
+        {/* Says the quiet part out loud: the app is holding days this screen is not showing.
+            Without it, a caregiver whose today is empty cannot tell an empty day from an app
+            that failed to load anything. */}
+        {laterCount > 0 && (
+          <p className="page__sub">{t("laterVisits", { count: String(laterCount) })}</p>
         )}
       </div>
     </>

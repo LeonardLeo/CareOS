@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import select
 
+from careos.api.v1.visits import DEFAULT_MY_VISITS_LOOKAHEAD_DAYS, MAX_MY_VISITS_WINDOW_DAYS
 from careos.config import Settings, validate_settings
 from careos.core.crypto import encrypt_field
 from careos.db.session import tenant_session
@@ -245,6 +246,74 @@ async def test_my_visits_filters_by_date_window(client, tenant_a: TenantFixture)
     tomorrow = (datetime.now(UTC) + timedelta(days=1)).date().isoformat()
     inside = await client.get(f"/v1/my-visits?from={tomorrow}&to={tomorrow}", headers=headers)
     assert len(inside.json()) == 1
+
+
+async def test_my_visits_without_a_window_does_not_return_the_whole_employment(
+    client, tenant_a: TenantFixture
+) -> None:
+    """An omitted window means today plus the lookahead, not every visit ever assigned.
+
+    This response is unpaginated and carries client names and addresses. Unbounded, it grew
+    with the caregiver's tenure — and the app rendered all of it under a heading that said
+    "Today", so a visit from last month appeared as one happening this afternoon.
+    """
+    await _assigned_visit(tenant_a)  # tomorrow, inside the default window
+    old_visit_id, _ = await _assigned_visit(tenant_a, legal_name="Long Ago Client")
+    async with tenant_session(tenant_a.agency_id) as session:
+        stale = await session.get(ScheduledVisit, old_visit_id)
+        assert stale is not None
+        shift = timedelta(days=DEFAULT_MY_VISITS_LOOKAHEAD_DAYS + 30)
+        stale.scheduled_start -= shift
+        stale.scheduled_end -= shift
+
+    body = (await client.get("/v1/my-visits", headers=tenant_a.headers(Role.caregiver))).json()
+    assert len(body) == 1, "a visit outside the default window came back anyway"
+    assert body[0]["client"]["legal_name"] != "Long Ago Client"
+
+
+async def test_my_visits_refuses_a_window_wider_than_the_cap(
+    client, tenant_a: TenantFixture
+) -> None:
+    """The bound is what keeps an unpaginated PHI response a predictable size."""
+    headers = tenant_a.headers(Role.caregiver)
+    start = datetime.now(UTC).date()
+
+    # A concrete window, not one derived from the constant. Asking only whether the code
+    # refuses `MAX + 1` passes for any value of MAX, including one large enough to be no
+    # limit at all — which is the failure this test exists to catch.
+    a_year_out = (start + timedelta(days=365)).isoformat()
+    response = await client.get(
+        f"/v1/my-visits?from={start.isoformat()}&to={a_year_out}", headers=headers
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    # The limit itself is allowed; only wider is refused.
+    at_the_limit = (start + timedelta(days=MAX_MY_VISITS_WINDOW_DAYS - 1)).isoformat()
+    allowed = await client.get(
+        f"/v1/my-visits?from={start.isoformat()}&to={at_the_limit}", headers=headers
+    )
+    assert allowed.status_code == 200, "the cap is off by one — the limit itself is refused"
+
+    just_over = (start + timedelta(days=MAX_MY_VISITS_WINDOW_DAYS)).isoformat()
+    refused = await client.get(
+        f"/v1/my-visits?from={start.isoformat()}&to={just_over}", headers=headers
+    )
+    assert refused.status_code == 422, "one day past the cap was accepted"
+
+
+async def test_my_visits_refuses_a_backwards_window(client, tenant_a: TenantFixture) -> None:
+    """`to` before `from` is a caller bug, not an empty schedule.
+
+    Returning [] would let a client with swapped parameters show a caregiver an empty day.
+    """
+    headers = tenant_a.headers(Role.caregiver)
+    today = datetime.now(UTC).date()
+    response = await client.get(
+        f"/v1/my-visits?from={today.isoformat()}&to={(today - timedelta(days=1)).isoformat()}",
+        headers=headers,
+    )
+    assert response.status_code == 422, response.text
 
 
 # --- CORS -----------------------------------------------------------------------------------

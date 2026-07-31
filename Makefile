@@ -28,6 +28,12 @@ migrate: ## Apply all migrations
 seed: ## Seed global reference data (EVV aggregators, credential types, service codes)
 	cd $(API) && .venv/bin/python -m careos.scripts.seed_reference_data
 
+# Drives the public API rather than inserting rows, so the demo agency can only reach states a
+# real agency could. Requires `make dev` (or an equivalent) already listening on :8000.
+.PHONY: demo
+demo: ## Populate a running local API with a demo agency, caregivers, clients and visits
+	cd $(API) && .venv/bin/python -m careos.scripts.seed_demo_data
+
 .PHONY: dev
 dev: ## Run the API with reload
 	cd $(API) && .venv/bin/uvicorn careos.main:app --reload --port 8000
