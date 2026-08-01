@@ -79,8 +79,8 @@ export default function ContactPage() {
       </section>
 
       <section className="section section--sunken">
-        <div className="shell shell--narrow prose stack-4">
-          <Reveal>
+        <div className="shell">
+          <Reveal className="column prose stack-4">
             <p className="eyebrow">What happens next</p>
             <h2 className="display d3" style={{ marginTop: "var(--s3)" }}>
               Honestly, it depends on your state.

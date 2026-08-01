@@ -184,8 +184,8 @@ export default function SecurityPage() {
       </section>
 
       <section className="section">
-        <div className="shell shell--narrow">
-          <Reveal>
+        <div className="shell">
+          <Reveal className="column">
             <p className="eyebrow">Reporting something</p>
             <h2 className="display d2" style={{ marginTop: "var(--s4)" }}>
               Found a problem? Tell us before you tell anyone else.

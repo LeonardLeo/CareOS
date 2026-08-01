@@ -58,8 +58,8 @@ export default function AboutPage() {
       />
 
       <section className="section section--tight">
-        <div className="shell shell--narrow prose stack-4">
-          <Reveal>
+        <div className="shell">
+          <Reveal className="column prose stack-4">
             <p>
               Home-based care is one of the few industries where demand is guaranteed for the
               next thirty years and supply is the entire constraint. Ten thousand Americans

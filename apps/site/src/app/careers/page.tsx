@@ -39,8 +39,8 @@ const ROLES = [
   },
   {
     title: "Clinical operations lead",
-    where: "Remote (US), home care background required",
-    body: "You have run scheduling or compliance at an agency. You know what a state auditor asks for and what a coordinator actually does at 6am when someone calls out.",
+    where: "Remote (US timezones)",
+    body: "A home care background is required: you have run scheduling or compliance at an agency. You know what a state auditor asks for and what a coordinator actually does at 6am when someone calls out.",
     hard: "You would be the only person here who has done the job the software is for, which means being listened to and also being the one who has to say no.",
   },
 ];

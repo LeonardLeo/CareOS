@@ -35,9 +35,9 @@ export function LegalPage({
       </PageHero>
 
       <section className="section section--tight">
-        <div className="shell shell--narrow">
+        <div className="shell">
           <Reveal>
-            <div className="legal">{children}</div>
+            <div className="legal column">{children}</div>
           </Reveal>
         </div>
       </section>

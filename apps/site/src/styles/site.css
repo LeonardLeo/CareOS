@@ -1197,3 +1197,16 @@ code {
 .section--ink .card .ticks {
   color: var(--ink-2);
 }
+
+/* A reading column inside the full-width shell.
+ *
+ * Not `.shell--narrow`, which centres itself and therefore starts ~200px further right than
+ * the page header above it — the eye reads that as an accidental indent rather than as a
+ * measure. This keeps the left edge of body text flush with the heading it belongs to, which
+ * is the whole point of having a grid.
+ *
+ * `.shell--narrow` is still correct where the block is centred on purpose: the closing calls
+ * to action set `text-align: center`, and there the centring is the design. */
+.column {
+  max-width: var(--shell-narrow);
+}

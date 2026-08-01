@@ -11,7 +11,7 @@ import { NAV } from "@/content/site";
 export default function NotFound() {
   return (
     <section className="section ruled">
-      <div className="shell shell--narrow">
+      <div className="shell column">
         <p className="eyebrow">404</p>
         <h1 className="display d2" style={{ marginTop: "var(--s4)" }}>
           That page is not here.
