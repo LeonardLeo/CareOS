@@ -46,6 +46,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="shell">
+      {/* Nine nav links sit before the content on every screen. Without this, reaching the
+          page a keyboard user actually came for costs nine tabs, on every navigation, all
+          day. */}
+      <a className="skip" href="#main">
+        {t("skipToContent")}
+      </a>
       <aside className="sidebar">
         <div className="brand">
           <span className="brand__mark" aria-hidden="true">
@@ -79,7 +85,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      <main className="main">{children}</main>
+      {/* `tabIndex={-1}` is what makes the skip link work. Without it the browser scrolls to
+          the fragment but leaves focus on the link, so the next Tab goes back into the nav
+          and the reader never escapes it. */}
+      <main className="main" id="main" tabIndex={-1}>
+        {children}
+      </main>
     </div>
   );
 }

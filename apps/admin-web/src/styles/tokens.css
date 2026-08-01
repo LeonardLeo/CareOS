@@ -42,7 +42,10 @@
   /* --- Ink --------------------------------------------------------------- */
   --ink: #16181c;
   --ink-secondary: #52534e;
-  --ink-muted: #86877f;
+  /* Darker than it wants to be. At #86877f it measured 3.51:1 on the card ground and 3.14:1
+   * on the sunken one, which fails AA — and this token carries every table header, stat
+   * label, caption, and unit in the console. Muted has to mean quiet, not unreadable. */
+  --ink-muted: #67685f;
   --ink-inverse: #ffffff;
 
   /* --- Accent ------------------------------------------------------------ */
@@ -67,9 +70,13 @@
   --ordinal-4: #0d366b;
 
   /* --- Status (reserved; never a series color) ---------------------------- */
-  --good: #0ca30c;
+  /* Darkened from #0ca30c, which measured 2.97:1 against its own wash — the pairing every
+   * "Current" and "active" badge in the console is made of. */
+  --good: #147014;
   --good-wash: #e4f6e4;
-  --warning: #b06f00;
+  /* 4.10:1 on white before; the MFA-not-enrolled warning is exactly the text that must not
+   * be hard to read. */
+  --warning: #a06400;
   --warning-wash: #fdf1d8;
   --serious: #c2571f;
   --serious-wash: #fceee6;
@@ -135,7 +142,8 @@
 
     --ink: #f2f3f5;
     --ink-secondary: #b6bac1;
-    --ink-muted: #858a93;
+    /* 4.44:1 on the dark card ground before — just under, and only the dark pass caught it. */
+    --ink-muted: #8f949d;
     --ink-inverse: #16181c;
 
     --accent: #5598e7;

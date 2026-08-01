@@ -2,9 +2,16 @@
 
 /* --- Shell: a console, not a marketing page ------------------------------ */
 
+/*
+ * `minmax(0, 1fr)` rather than `1fr`. A grid track sized `1fr` still has `min-width: auto`,
+ * so it refuses to shrink below its content — one wide table inside `main` pushed the whole
+ * grid past the viewport, and both the sidebar and the main column painted up to 369px
+ * outside the shell that was supposed to contain them. The `minmax(0, …)` floor lets the
+ * column shrink and hands the overflow to `.table-wrap`, which is built to scroll.
+ */
 .shell {
   display: grid;
-  grid-template-columns: var(--sidebar-width) 1fr;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -542,10 +549,17 @@
   background: var(--surface-hover);
 }
 
+/*
+ * Wraps rather than overflows. The weekday and the date are both `nowrap`, and at the narrow
+ * end of the day column "Aug 1" painted up to 26px outside it — over the timeline itself. A
+ * second line is the right answer here: the column is a label, and losing the date to make
+ * one line fit would cost the reader the thing they are scanning for.
+ */
 .timeline__day {
   display: flex;
   align-items: baseline;
-  gap: var(--space-2);
+  flex-wrap: wrap;
+  gap: 0 var(--space-2);
   padding-right: var(--space-3);
 }
 
@@ -686,8 +700,15 @@
   overflow-x: auto;
 }
 
+/*
+ * `min-width` is what makes `.table-wrap` do anything. With `width: 100%` alone a table on a
+ * narrow screen does not overflow — it complies, crushing a job title into a 45px column
+ * eight lines tall. Given a floor it overflows instead, and the wrapper scrolls, which is
+ * the behaviour the wrapper was added for.
+ */
 .table {
   width: 100%;
+  min-width: 48rem;
   border-collapse: collapse;
   font-size: var(--text-sm);
 }
@@ -1064,8 +1085,26 @@
     padding: var(--space-4);
   }
 
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .timeline__row {
-    grid-template-columns: 3.5rem 1fr;
+    grid-template-columns: 3.5rem minmax(0, 1fr);
+  }
+
+  /*
+   * A visit bar is 14px tall, which is right on a desktop timeline and below the 24px floor
+   * WCAG 2.2 (2.5.8) sets for a touch target. Taller on a phone only: the timeline is already
+   * a compressed view there, and a tap that misses is worse than a denser row.
+   */
+  .timeline__visit {
+    height: 24px;
+    top: 3px;
+  }
+
+  .timeline__row {
+    min-height: 34px;
   }
 
   .timeline__hours,
@@ -1272,4 +1311,36 @@ button.timeline__visit {
 .codelist .mono-block {
   margin: 0;
   text-align: center;
+}
+
+/* --- Skip link ------------------------------------------------------------ */
+/*
+ * Off-screen until focused. Nine nav links precede the content on every screen, so without
+ * this a keyboard user pays nine tabs per navigation to reach what they came for.
+ */
+
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  background: var(--ink);
+  color: var(--surface);
+  padding: 0.7rem 1.1rem;
+  border-radius: 0 0 var(--radius-sm) 0;
+  text-decoration: none;
+}
+
+.skip:focus {
+  left: 0;
+}
+
+/*
+ * `main` is focusable only so the skip link can hand focus to it; it is never in the tab
+ * order. Ringing the whole page when that happens indicates nothing the reader does not
+ * already know, having just pressed the link that took them there.
+ */
+main:focus,
+main:focus-visible {
+  outline: none;
 }
