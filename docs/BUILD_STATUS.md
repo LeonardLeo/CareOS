@@ -520,7 +520,7 @@ above.
 | **Staged export for large agencies** | The synchronous export refuses above `MAX_EXPORT_ROWS` rather than risking the instance. An agency past that ceiling needs a job writing to object storage |
 | **Tracing** | No distributed tracing on the EVV and scheduling paths. Metrics and alerting answer *that* a clock-in was slow; nothing answers *why* |
 | **A real pager** | Alert rules, routing, and local delivery are built and tested. The receivers are placeholders, so an alert reaches a log line in a container. This is the remaining gap between the system and the 99.9% NFR |
-| **Infrastructure-as-code** | No Terraform, no deployed environment |
+| **A deployed environment** | Terraform for AWS staging and production is written (`infra/`) and validated in CI, but nothing has been applied. There is no running instance of this system anywhere |
 | **Localization beyond English and Spanish** | Both apps are fully EN/ES, which is what the PRD requires at MVP. A third language is a dictionary; nothing in the mechanism assumes two |
 
 ## Compliance and security posture

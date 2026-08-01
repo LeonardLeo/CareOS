@@ -5,7 +5,9 @@ bulk insert, and deliberate: a demo built out of direct inserts can produce stat
 would never allow, and then the screens show something the product cannot actually reach.
 Everything here goes through the same validation, RBAC, and audit path a real agency would.
 
-Not for staging or production. It creates users with known passwords.
+Not for staging or production. It creates real users, and `refuse_non_local` below is what
+enforces that rather than this sentence — the first version of this file said the same thing
+and had nothing behind it.
 
     make demo            # with the API already running on :8000
     python -m careos.scripts.seed_demo_data --base-url http://127.0.0.1:8000
@@ -14,17 +16,32 @@ Not for staging or production. It creates users with known passwords.
 from __future__ import annotations
 
 import argparse
+import ipaddress
+import os
 import random
+import secrets
 import sys
 import time
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
-DEMO_PASSWORD = "demo-password-12345"
+
+def generate_demo_password() -> str:
+    """A fresh password per run, rather than one written down.
+
+    A password constant in a seed script is a password constant in the repository, and the
+    credential scanner in CI was right to fail the build over it. Nothing needed the value to
+    be stable: it is printed at the end, which was always the only place anyone read it.
+    """
+    return f"demo-{secrets.token_urlsafe(12)}"
+
+
+DEMO_PASSWORD = os.environ.get("CAREOS_DEMO_PASSWORD") or generate_demo_password()
 OWNER_EMAIL = "owner@bayridgecare.demo"
 CAREGIVER_EMAIL = "ama.boateng@bayridgecare.demo"
 
@@ -415,11 +432,38 @@ def seed(base_url: str) -> None:
     print(f"  caregiver app  {CAREGIVER_EMAIL} / {DEMO_PASSWORD}")
 
 
+def refuse_non_local(base_url: str) -> None:
+    """Refuse to seed anything that is not on this machine.
+
+    This script signs up an agency, creates staff accounts with a password it prints to the
+    terminal, and clocks visits in and out. Pointed at a real deployment it would be a
+    security incident with a Makefile target. A docstring saying "not for production" is not a
+    control; resolving the host and checking it is loopback is.
+
+    Deliberately no `--force`. There is no legitimate reason to run this against a remote
+    host, and an escape hatch is the thing that ends up in somebody's shell history.
+    """
+    host = urlparse(base_url).hostname
+    if host is None:
+        raise RuntimeError(f"cannot read a host out of {base_url!r}")
+    if host == "localhost":
+        return
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"refusing to seed demo data into {host!r}: this script is local-only"
+        ) from exc
+    if not address.is_loopback:
+        raise RuntimeError(f"refusing to seed demo data into {host!r}: this script is local-only")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     args = parser.parse_args()
     try:
+        refuse_non_local(args.base_url)
         seed(args.base_url)
     except RuntimeError as exc:
         print(f"demo seed failed: {exc}", file=sys.stderr)
