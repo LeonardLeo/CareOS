@@ -413,10 +413,9 @@ jobs:
         # Cheap, and it catches the two silent drifts: a published page nothing links to, and a
         # navigation entry pointing at a route that was never built.
         run: node scripts/check-routes.mjs
-      - name: Accessibility
-        # `/legal/accessibility/` claims these checks run on every change and fail the build.
-        # This is the step that makes that claim true. `http.server` rather than a package from
-        # the registry: it maps a directory to its index.html, which is all a static export is.
+      - name: Serve the export
+        # `http.server` rather than a package from the registry: it maps a directory to its
+        # index.html, which is all a static export is.
         run: |
           npx playwright install --with-deps chromium
           python3 -m http.server 3002 --directory out --bind 127.0.0.1 &
@@ -424,7 +423,15 @@ jobs:
             curl -fsS http://127.0.0.1:3002/ > /dev/null && break
             sleep 1
           done
-          node scripts/a11y.mjs http://127.0.0.1:3002
+      - name: Accessibility
+        # `/legal/accessibility/` claims these checks run on every change and fail the build.
+        # This is the step that makes that claim true.
+        run: node scripts/a11y.mjs http://127.0.0.1:3002
+      - name: Layout
+        # Geometry, at four widths. Both defects it was written for shipped green through
+        # everything above it: a list item 1096px tall, and a footer whose brand column
+        # collapsed to 20px on a phone and painted the wordmark over the next column.
+        run: node scripts/layout.mjs http://127.0.0.1:3002
 
   caregiver-app:
     name: Caregiver app (offline EVV)

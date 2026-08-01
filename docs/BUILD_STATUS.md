@@ -397,6 +397,29 @@ harness's own colour parser read `color(srgb 0.97 0.96 0.94)` on a 0-255 scale, 
 near-white as near-black; it accused the site header of 1.18:1 before it accused itself. Each
 check was then mutation-tested by breaking the page and confirming it failed.
 
+`scripts/layout.mjs` also runs in CI, over four configurations — 1440, 1024, and 390 wide, plus
+dark. It reports five geometric defects the rest of the pipeline is blind to: an anonymous text
+item in a multi-track grid, content clipped by its own `overflow: hidden` box, a child painted
+outside its parent's padding box, two text elements sharing pixels, and a tap target under
+24x24 on a phone. Every check was mutation-tested by reintroducing a defect and confirming it
+failed.
+
+It found the footer broken on every page at phone width. `.footer__grid` was an unconditional
+`minmax(0, 2fr) repeat(auto-fit, minmax(9rem, 1fr))`; on a 390px screen `auto-fit` still laid
+down two 9rem tracks, and because the brand column's floor was `0` it was the track that gave
+way — collapsing to about 20px, so the wordmark painted across the "Product" heading and the
+paragraph beneath it set one word per line down the page. `auto-fit` only removes tracks that
+are *empty*; it will not reflow to rescue a track whose minimum is zero. Now stacked by
+default, with columns introduced at 34rem and the desktop proportions at 56rem.
+
+Two things about writing that check are worth keeping. Its first version flagged every
+`display: flex` button holding a label beside an arrow span — 60 findings, none of them
+defects, which is how a check becomes something people skip. Narrowed to grids with more than
+one column track, where an anonymous item genuinely lands in the wrong place, it reports
+nothing false. And its overlap test originally compared bounding rects, so two `<strong>`s in
+one wrapping paragraph read as stacked; comparing per-line boxes from `getClientRects()`
+measures what a reader sees.
+
 Two more came out of the `squeezed` check, which was written after a reader asked why the new
 policy pages looked wrong. `.legal ul li` was a two-column grid with a `0.9rem` marker track,
 which works only while an item's content is a single text run — every child of a grid

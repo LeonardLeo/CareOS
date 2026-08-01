@@ -1029,10 +1029,39 @@ code {
   background: var(--paper-sunken);
 }
 
+/*
+ * Stacked first, columns only once there is room for them.
+ *
+ * This was a single unconditional `minmax(0, 2fr) repeat(auto-fit, minmax(9rem, 1fr))`. On a
+ * phone `auto-fit` still laid down two 9rem tracks, and since the brand column's minimum was
+ * 0, it was the one that gave way: it collapsed to about 20px, the wordmark painted straight
+ * across the "Product" heading, and the paragraph beneath it set one word per line down the
+ * length of the page. `auto-fit` only removes tracks that are *empty* — it will not reflow to
+ * rescue a track whose floor is zero, so the narrow case has to be stated rather than assumed.
+ */
 .footer__grid {
   display: grid;
   gap: var(--s6);
-  grid-template-columns: minmax(0, 2fr) repeat(auto-fit, minmax(9rem, 1fr));
+  grid-template-columns: 1fr;
+}
+
+/* Two-up: the groups share a row, the brand block keeps the full width above them. */
+@media (min-width: 34rem) {
+  .footer__grid {
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  }
+  .footer__grid > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 56rem) {
+  .footer__grid {
+    grid-template-columns: minmax(14rem, 2fr) repeat(auto-fit, minmax(9rem, 1fr));
+  }
+  .footer__grid > :first-child {
+    grid-column: auto;
+  }
 }
 
 .footer__heading {
