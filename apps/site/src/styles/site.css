@@ -1159,24 +1159,42 @@ code {
   gap: 0.6rem;
 }
 
+/*
+ * The bullet is positioned, not a grid track.
+ *
+ * This was `display: grid` with a `0.9rem` marker column, which works only while the item's
+ * content is a single text run. Every child of a grid container is a grid item — including an
+ * anonymous run of text — so an item written as `<strong>Lead-in.</strong> the rest` became
+ * two items, and the rest of the sentence was placed in the *marker* track and wrapped at
+ * 14px. One list item on the HIPAA page rendered 1096px tall, a word per line. Taking the
+ * marker out of flow means the item lays out as ordinary inline content no matter how many
+ * elements the sentence is made of.
+ */
 .legal ul li {
-  display: grid;
-  grid-template-columns: 0.9rem minmax(0, 1fr);
-  gap: 0.55rem;
-  align-items: start;
+  position: relative;
+  padding-left: 1.45rem;
 }
 
 .legal ul li::before {
   content: "";
+  position: absolute;
+  left: 0;
+  top: 0.62em;
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: var(--rule-strong);
-  margin-top: 0.62em;
 }
 
+/*
+ * `min-width` is what makes the `.scroller` wrapper do anything. With `width: 100%` alone a
+ * four-column table on a phone does not overflow — it complies, crushing "Hosting, managed
+ * database, object storage" into a 70px column six lines tall. Given a floor it overflows
+ * instead, and the wrapper scrolls, which is the behaviour the wrapper was added for.
+ */
 .legal table {
   width: 100%;
+  min-width: 42rem;
   border-collapse: collapse;
   margin-top: var(--s4);
   font-size: 0.94rem;

@@ -386,9 +386,9 @@ section, and a harness that reported the whole document unrevealed because `scro
 smooth` meant a scripted scroll loop moved the page 231px out of 4612.
 
 `scripts/a11y.mjs` runs in CI and fails the build: contrast on every rendered text node
-against the background actually behind it, real Tab-key traversal of the skip link, accessible
-names, form labels, heading order, landmarks, `lang`, and `alt`. It found four things a green
-test suite did not. Muted text at `#7c746a` measured 3.97:1 — every eyebrow, figure source,
+against the background actually behind it, text squeezed into a column too narrow to hold it,
+real Tab-key traversal of the skip link, accessible names, form labels, heading order,
+landmarks, `lang`, and `alt`. It found six things a green test suite did not. Muted text at `#7c746a` measured 3.97:1 — every eyebrow, figure source,
 and field hint on the site failed AA. The skip link scrolled but never moved focus, because
 `main` had no `tabindex="-1"`, so the next Tab went back into the nav. A section eyebrow that
 passed at 8.2:1 in light mode measured 4.0:1 in dark, since the same colour mix is symmetrical
@@ -396,6 +396,17 @@ and contrast is not — which is why dark is a full pass rather than a spot chec
 harness's own colour parser read `color(srgb 0.97 0.96 0.94)` on a 0-255 scale, reporting
 near-white as near-black; it accused the site header of 1.18:1 before it accused itself. Each
 check was then mutation-tested by breaking the page and confirming it failed.
+
+Two more came out of the `squeezed` check, which was written after a reader asked why the new
+policy pages looked wrong. `.legal ul li` was a two-column grid with a `0.9rem` marker track,
+which works only while an item's content is a single text run — every child of a grid
+container is a grid item, including an anonymous run of text, so an item written as
+`<strong>Lead-in.</strong> the rest` put the rest of the sentence in the *marker* track. One
+list item rendered 1096px tall at a word per line, on four pages, and nothing caught it: it
+overflows nothing horizontally, hides nothing, and every colour and label was correct. The
+same check then found the subprocessor table crushing a column to 70px on a phone, because
+`width: 100%` with no `min-width` made it comply with the viewport rather than overflow the
+scroll wrapper it sits in. Both fixed; 27 instances down to none.
 
 ### EVV reconciliation and conformance
 

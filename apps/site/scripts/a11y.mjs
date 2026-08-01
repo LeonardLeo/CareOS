@@ -9,6 +9,8 @@
  * What it checks:
  *   contrast   every rendered text node against its effective background, at the WCAG 2.1 AA
  *              thresholds (4.5:1, or 3:1 for text at 24px, or 18.66px bold and above)
+ *   squeezed   a sentence laid out into a column too narrow to hold it — the failure that
+ *              renders a list item a word per line, or crushes a table column on a phone
  *   names      every link and button resolves to a non-empty accessible name
  *   labels     every form control resolves to one
  *   headings   exactly one h1, and no level skipped on the way down
@@ -111,6 +113,38 @@ function inspect() {
     const need = large ? 3 : 4.5;
     if (ratio < need) {
       add("contrast", `${where(el)} — ${ratio.toFixed(2)}:1, needs ${need}:1 (${s.color} on rgb(${Math.round(bg.r)},${Math.round(bg.g)},${Math.round(bg.b)}))`);
+    }
+  }
+
+  // --- squeezed text --------------------------------------------------------------------
+  /*
+   * Catches a sentence rendered into a column too narrow to hold it — the failure that put a
+   * 1096px-tall list item on the HIPAA page, where a `<strong>` lead-in inside a `display:
+   * grid` list item pushed the rest of the sentence into the 0.9rem bullet track, one word per
+   * line. Nothing else here would have seen it: it overflows nothing horizontally, hides
+   * nothing, and every colour and label is correct.
+   *
+   * Measured per text node via a Range, which gives one rect per line box, so it reads what
+   * the browser actually laid out rather than what the CSS was supposed to mean. A real
+   * paragraph's widest line is hundreds of pixels; a squeezed one never clears the threshold.
+   */
+  const MIN_LINE = 80;
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node.textContent.trim();
+    if (text.length <= 30) continue;
+    const parent = node.parentElement;
+    if (!parent || !visible(parent)) continue;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const rects = [...range.getClientRects()];
+    if (rects.length < 2) continue;
+    const widest = Math.max(...rects.map((r) => r.width));
+    if (widest < MIN_LINE) {
+      add(
+        "squeezed",
+        `${where(parent)} — "${text.slice(0, 34)}" laid out over ${rects.length} lines, widest ${Math.round(widest)}px`,
+      );
     }
   }
 
