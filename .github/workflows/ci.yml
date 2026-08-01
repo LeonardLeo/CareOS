@@ -423,15 +423,13 @@ jobs:
             curl -fsS http://127.0.0.1:3002/ > /dev/null && break
             sleep 1
           done
-      - name: Accessibility
+      - name: Accessibility and layout
         # `/legal/accessibility/` claims these checks run on every change and fail the build.
-        # This is the step that makes that claim true.
+        # This is the step that makes that claim true. Geometry is in the same pass: both
+        # layout defects it was written for shipped green through everything above it — a list
+        # item 1096px tall, and a footer whose brand column collapsed to 20px on a phone and
+        # painted the wordmark across the next column.
         run: node scripts/a11y.mjs http://127.0.0.1:3002
-      - name: Layout
-        # Geometry, at four widths. Both defects it was written for shipped green through
-        # everything above it: a list item 1096px tall, and a footer whose brand column
-        # collapsed to 20px on a phone and painted the wordmark over the next column.
-        run: node scripts/layout.mjs http://127.0.0.1:3002
 
   caregiver-app:
     name: Caregiver app (offline EVV)
