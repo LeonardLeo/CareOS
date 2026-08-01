@@ -1,2 +1,587 @@
 # CareOS
-CareOS
+
+An AI-native operating system for home-based care agencies — home care, home health, and
+hospice. CareOS replaces the workforce, documentation, and billing workflows currently split
+across legacy EHR-style systems, spreadsheets, and phone calls.
+
+Full product rationale, scope, and constraints live in [`docs/`](docs/). **Read
+[`docs/12_Engineering_Handoff_Guide.md`](docs/12_Engineering_Handoff_Guide.md) first** — it
+explains how the document set fits together and what to verify before writing code.
+
+---
+
+## Current state
+
+**Phase 1 (AI Workforce Engine) — M0 through M4 complete on the backend, with a working
+agency admin web app and a working caregiver app.** Offline EVV clock-in is built and verified
+against a real API with the browser's network genuinely cut. The caregiver app is an installable
+PWA rather than a React Native build — a deviation from `03_Technical_Architecture.md` Section 2
+that is explained in BUILD_STATUS. Remaining before launch: real-device testing, telephony
+clock-in, and the compliance reviews.
+
+See [`docs/BUILD_STATUS.md`](docs/BUILD_STATUS.md) for what is built, what is deliberately
+stubbed, and what has not been started — assessed against the milestone table in
+`docs/10_Roadmap_Milestones_Team_Plan.md`.
+
+## Repository layout
+
+```
+docs/                    The 13-document product and architecture set (source of truth)
+apps/admin-web/          Agency admin web app (Next.js 15, React 19, TypeScript)
+apps/caregiver-app/      Caregiver app — offline-first EVV (Vite, React 19, PWA)
+  src/lib/               Outbox and sync engine; no React or DOM imports, so a
+                         React Native shell could reuse it behind a SQLite adapter
+services/api/            Modular-monolith backend (Python 3.11, FastAPI, PostgreSQL)
+  careos/
+    api/                 HTTP layer — routers, schemas, dependencies
+    core/                Cross-cutting: RBAC, audit, errors, idempotency, crypto, security
+    db/                  Engines, session/tenant context, RLS helpers, model registry
+    integrations/evv/    Per-state EVV adapters behind one interface
+    modules/             Domain modules per 03_Technical_Architecture.md Section 4
+    workers/             Async jobs (EVV transmission, webhook delivery, credential expiry)
+    scripts/             Reference-data seeding
+  alembic/versions/      Migrations, sequenced per 04_Data_Model_and_Schema.md Section 8
+  tests/                 Includes the CI-required multi-tenant isolation suite
+ops/prometheus/          Scrape config, alert rules, and promtool unit tests for them
+ops/alertmanager/        Severity routing and inhibitions
+ops/alert-sink/          Where alerts land locally, so the last hop is verifiable
+.github/workflows/ci.yml Required checks
+docker-compose.yml       Local stack (Postgres, Redis, API, worker, Prometheus, Alertmanager)
+```
+
+The folder structure mirrors the modular-monolith decomposition on purpose, so the
+architecture is visible in the tree rather than only in the document
+(`docs/12_Engineering_Handoff_Guide.md` Section 4).
+
+## Quick start
+
+Requires Python 3.11+ and PostgreSQL 16 (or just Docker).
+
+```bash
+# With Docker — brings up Postgres, Redis, and the API, migrated and seeded
+make up
+
+# Or locally
+make install
+make bootstrap-db     # creates the database and the careos_app / careos_auth roles
+make migrate
+make seed
+make dev              # API at http://localhost:8000/docs
+make worker           # the background job runner (EVV, webhooks, credential notices)
+
+# Admin web app (needs the API running)
+cd apps/admin-web && npm install && npm run dev   # http://localhost:3000
+
+# Caregiver app (needs the API running)
+cd apps/caregiver-app && npm install && npm run dev   # http://localhost:3001
+```
+
+The caregiver app's offline behaviour only exists in a production build — the service worker is
+not registered by the dev server — so test it with `npm run build && npm run preview`, then use
+the browser's offline toggle.
+
+```bash
+cd apps/caregiver-app
+npm test              # sync-engine unit tests, no browser needed
+npm run test:e2e      # browser end-to-end, including genuinely-offline clock-in
+```
+
+```bash
+cd apps/admin-web
+npm run i18n:check    # user-facing strings not going through the translator
+```
+
+```bash
+make check            # everything CI runs: lint, types, tests
+make test-isolation   # just the multi-tenant isolation suite
+make migration-check  # migrate down and up, then assert models and migrations agree
+make help             # all targets
+```
+
+`make migration-check` is separate from `make check` because it downgrades your local database
+to base and back. Run it whenever you add a migration: `alembic check` is what catches a
+migration that disagrees with its ORM model — a wrong `ondelete`, a missing index — and it was
+CI-only long enough to catch one after the push rather than before it.
+
+## Admin web app
+
+Next.js App Router, server-rendered. Three deliberate choices:
+
+- **The access token never reaches the browser.** It lives in an httpOnly cookie and every
+  API call runs server-side. This app renders PHI, so an XSS able to read a token would be a
+  reportable breach rather than a bug.
+- **Every AI suggestion shows its reasoning inline**, per `docs/09_UX_Design_and_User_Flows.md`
+  principle 4 — there is no bare score anywhere in the UI.
+- **Design tokens before screens**, per that document's Section 5, so the caregiver mobile app
+  and family portal can adopt the same scale rather than diverging.
+
+Fully localized in English and Spanish, resolved server-side so the first paint is in the
+right language rather than flashing English and correcting itself. `npm run i18n:check`
+fails on any user-facing string that is not going through the translator, and now runs in CI —
+it existed for an increment without anything calling it, which made it documentation rather
+than a check. Route handlers redirect with a *code* rather than a sentence for the same reason:
+an English message in a query string renders in English no matter what the reader chose.
+
+Screens: dashboard, scheduling board with gap queue and ranked suggestions (Flow A, the
+highest-frequency flow), recruiting funnel and applicant pipeline, credentialing renewal
+queue, and compliance review standing.
+
+### Information design
+
+It is an operational console for someone working a live gap under time pressure, not a
+marketing dashboard — so the chrome is recessive (hairline borders, no drop shadows, one
+accent) and the data is the only loud thing on screen.
+
+Each view starts from the data's job rather than a chart type. Coverage is a single ratio
+against a limit, so it is a **meter**, not a two-slice pie. The recruiting funnel is an
+ordered scale, so it uses a validated **ordinal ramp**. A match score is magnitude, so it is
+a **bar** you compare by length instead of two numbers you read. The schedule is occupancy
+over time, so it is a **timeline** — a list sorted by start time answers "what's next" but
+hides clustering, and three unfilled visits at the same hour on Thursday is a different
+problem from three spread across the week.
+
+**The palette is computed, not chosen by eye.** The categorical slots and the ordinal ramp
+were run through a validator against both surfaces: adjacent CVD ΔE 9.1 light / 8.4 dark
+(≥8 target), normal-vision ΔE 22.9 / 19.8 (≥15 floor), and the ordinal ramp passes
+monotone-lightness with ≥0.06 ΔL between steps in both modes. Dark mode is the same hues
+re-stepped for the dark surface, not an automatic flip. Status colors are reserved — critical
+means "act on this" — and always ship with an icon or label, since colour alone is not a
+signal.
+
+## Caregiver app: how offline works
+
+This is the part of the product most likely to be got wrong, so the design is stated rather than
+left to be inferred.
+
+A clock-in is written to IndexedDB **before** the UI acknowledges it. The caregiver is told
+"saved on this phone — will send when you have signal", and the network is attempted afterwards.
+Everything else follows from that ordering:
+
+- **The recorded time is the tap, not the delivery.** A visit began when the caregiver arrived,
+  not when they next found a cell tower. For EVV that distinction is the whole point.
+- **Replay is safe.** Each action carries a device-generated uuid, sent as both
+  `client_local_uuid` and `Idempotency-Key`, and reused on every retry. A request that succeeded
+  but whose response was lost is indistinguishable from one that never arrived — so the device
+  retries, and the server recognises it. An end-to-end test delivers one clock-in three times
+  and asserts a single EVV record.
+- **The queue is ordered and stops at the first failure.** Sending a clock-out whose clock-in
+  has not landed would be rejected on its merits, turning a network problem into lost data.
+- **Nothing is dropped.** A rejected action stops being retried but is never deleted; it becomes
+  "call the office". A caregiver's record of work performed is not the app's to discard.
+- **No location is not a failure.** Location capture times out in 8 seconds and never blocks a
+  clock-in. A missing fix is recorded as `manual_exception` with a readable reason, which is
+  what `02_Product_Requirements_Document.md` US-1.4.3 asks for.
+
+The sync engine (`apps/caregiver-app/src/lib/`) imports no React and no DOM. Storage and
+transport are interfaces, so it is unit-testable without a browser and portable to a React
+Native shell with a SQLite-backed store.
+
+## Architecture at a glance
+
+A **modular monolith** (`docs/03_Technical_Architecture.md` principle 2): one deployable,
+with hard module boundaries, rather than premature microservices. The AI/ML inference layer
+is the first intended extraction and is already isolated behind `careos/integrations/`.
+
+Four things are structural rather than conventional — enforced by the system, not by
+reviewer vigilance:
+
+**Tenant isolation has two independent layers.** Every tenant-scoped table has a PostgreSQL
+Row-Level Security policy with `FORCE ROW LEVEL SECURITY`, keyed on a transaction-local
+`careos.agency_id` setting. The application connects as `careos_app`, which holds no
+`BYPASSRLS` — so a handler that forgets to filter still cannot read another tenant's rows.
+A separate, narrowly-granted `careos_auth` role exists only for the two operations that
+precede knowing the tenant (login and agency provisioning). Cross-tenant read, write,
+update, delete, and insert attempts are all tested against a real database.
+
+**Every route declares who may call it.** `careos/core/rbac.py` validates at startup that
+each route declares either `requires(...)` roles or an explicit `public()` opt-out, and the
+app refuses to boot otherwise. `route_access_map()` dumps the full matrix as control
+evidence.
+
+**The audit trail cannot be rewritten.** The application role has `SELECT` and `INSERT` on
+`audit_log` and nothing else, so immutability is a database grant rather than a promise.
+Audit rows are written in the same transaction as the change they describe — if the change
+rolls back, so does its audit row.
+
+**No table can quietly skip the tenant key.** `careos/db/models.py` derives the tenant-table
+list from metadata and fails at startup if any table is neither tenant-scoped nor explicitly
+declared global. `alembic check` in CI catches migration/model drift.
+
+### EVV
+
+Electronic Visit Verification is a hard compliance requirement, not a feature
+(`docs/06_Compliance_and_Regulatory_Requirements.md` Section 1). Three properties are
+load-bearing:
+
+- **Per-state adapters behind one interface.** States change EVV vendors; when that happens
+  the fix is a row in `evv_aggregator_ref`, not a change to the scheduling module.
+- **A visit is compliant only when *acknowledged*,** not when submitted.
+- **An adapter cannot transmit production data until validated against the vendor sandbox.**
+  The registry enforces this from `evv_aggregator_ref.sandbox_validated`.
+
+Clock-in and clock-out never block on a compliance problem. A caregiver standing in a
+client's home must always be able to record that they are there; problems surface as
+compliance exceptions afterwards. Transmission happens in a background worker with
+exponential backoff, escalating to a human after repeated failure.
+
+## Rate limits
+
+`05_API_Specification.md` Section 9 gives two rules. Both are enforced, and the second one is
+the interesting half.
+
+| Tier | Limit | Keyed by |
+|---|---|---|
+| Standard | 100/minute | Agency, falling back to source address when unauthenticated |
+| Auth (`/auth/login`, `/auth/refresh`, `POST /agencies`) | 10/minute per account, 30/minute per address | Address, and address + email |
+| Exempt (`clock-in`, `clock-out`, `/health`) | none | — |
+
+**Clock-in and clock-out are never throttled.** A caregiver whose EVV record could not be
+created because someone else's traffic filled the agency's budget has an unpaid visit and the
+agency has a compliance exception, so throttling is not an available answer. Section 9 asks for
+abuse detection in its place: volume per caregiver is counted and logged above a ceiling no human
+reaches, and it never refuses a request. That is a shallow version of what the section describes —
+device fingerprinting and geo-velocity need a device identity the app does not send yet.
+
+The auth tier is not in the spec. Everything there is keyed by agency, and login happens before
+an agency is known, which left the password form as the only endpoint with no ceiling at all.
+
+Refusals carry `Retry-After`; answered requests carry `RateLimit-Limit`, `RateLimit-Remaining`,
+and `RateLimit-Reset`, so a client can slow down before it is turned away. The caregiver app's
+outbox honours the header in preference to its own backoff.
+
+Limits are configurable (`CAREOS_RATE_LIMIT_*`). The buckets live in Redis
+(`CAREOS_RATE_LIMIT_BACKEND=redis`), so the figures above are what the cluster enforces rather than
+what each instance enforces separately. The refill arithmetic runs as a Lua script and reads
+Redis's own clock, because a read-modify-write over the network lets N concurrent requests each
+see the same balance, and instances sharing a bucket must also share a clock.
+
+`memory` keeps the buckets in process and is the default for development and tests; it multiplies
+every limit by the instance count, so production refuses to boot on it.
+
+**When Redis is unreachable the API keeps serving and limiting falls back to in-process buckets.**
+Fail closed would make an EVV clock-in depend on a cache; fail open would lift the brute-force
+ceiling on login at the worst possible moment. Degraded means the limits still apply, just per
+instance. It is logged at `error` with the consequence spelled out, and a short circuit breaker
+keeps a dead Redis from costing a connect timeout on every request.
+
+## Metrics
+
+Prometheus exposition at `GET /metrics`, scraped by a collector rather than pushed anywhere, so
+nothing outbound sits in a request path.
+
+It exists because several things here **degrade rather than break**, which is deliberate — a
+system that keeps serving caregivers beats one that stops — but it means the only evidence was a
+log line nothing collected:
+
+| Signal | Why it is invisible otherwise |
+|---|---|
+| `careos_rate_limit_degraded` | A limiter that has lost Redis answers every request; the cluster just enforces N× the published ceiling |
+| `careos_evv_anomalous_volume_total` | Section 9 asks for detection instead of throttling on clock-in. Nothing is ever refused, so the counter *is* the response |
+| `careos_evv_escalations_total` | A record that exhausted its retries now needs a person, and nobody is told |
+| `careos_request_commit_failures_total` | How often the database will not accept a write |
+| `careos_sessions_rejected_total{reason}` | Revoked-session refusals separated from ordinary bad tokens — a spike in the first means an offboarding just happened |
+| `careos_http_requests_total`, `careos_http_request_duration_seconds` | By route template and status |
+
+**No label carries a tenant or a person.** No `agency_id`, no `caregiver_id`, no client name.
+Metrics outlive logs, are exported to systems with looser access control than the database, and
+land on dashboards a lot of people can see. Route *templates* are used rather than paths for the
+same reason, and because `/v1/visits/{visit_id}` is one time series where the concrete path is
+one per visit. A test walks every registered collector and fails on a forbidden label, so a
+metric added later cannot quietly reintroduce it.
+
+Scraping is gated by `CAREOS_METRICS_TOKEN` as a bearer token, compared in constant time.
+Production refuses to boot without one; local development may leave it empty. The endpoint is
+`public()` in the RBAC sense because a collector has no agency and fits no role in this model —
+inventing one would put a login in the monitoring path.
+
+**Run one worker per container and scale with replicas, not with `--workers N`.** The registry
+lives in process memory, so several uvicorn workers behind one port would each hold their own
+counters and a scrape would land on whichever answered — undercounting by roughly the worker
+count, invisibly. One process per container is the normal pattern and is correct here: each
+replica is a separate scrape target and the collector sums them. Same shape of mistake as
+in-process rate-limit buckets, which is why it is written down rather than assumed.
+
+## Alerting
+
+`ops/prometheus/alerts.yml` holds the rules, `ops/alertmanager/alertmanager.yml` routes them,
+and `make up` brings up Prometheus, Alertmanager, and a sink so the whole path runs locally —
+metric changes, rule fires, route resolves, something receives it. The last step is the one
+most likely to be broken and the only one you cannot verify by reading configuration.
+
+Two severities, because the only useful question about an alert is whether it should wake
+someone. `page` means a caregiver or an agency is being harmed right now; `ticket` means
+someone needs to look today. Anything else is a dashboard. The failure mode of an alerting
+system is not missing an incident, it is firing often enough that a real one gets ignored.
+
+| Pages | Tickets |
+|---|---|
+| API not answering scrapes | Rate limiting degraded to per-instance (pages after an hour) |
+| Clock-in/out returning 5xx | EVV records escalated to a human |
+| Writes failing to commit | Aggregator rejecting records, or an adapter misconfigured |
+| | Anomalous EVV volume; sustained auth refusals; slow clock-in |
+
+**The rules are unit-tested** (`promtool test rules`, run in CI), and the negative cases are the
+point. A clock-in answering 409 "already clocked in" or 422 "compliance gate" must not page —
+that is the system working. A counter that is merely non-zero is not an event; only an increase
+is, or the first EVV escalation alerts forever. Each of those tests is named after the mistake
+it prevents, and each was checked by making the mistake and watching the test fail.
+
+CI also asserts that every metric named in a rule is one the API actually exports. `promtool`
+cannot catch that — its tests run against series written by hand in the same change — so a
+renamed metric would leave a rule that parses, tests green, and never fires.
+
+**The receivers are placeholders.** Wiring `page` to a real pager needs a PagerDuty key or a
+Slack webhook that this repository should not hold. Until someone does that, alerts reach a log
+line in a container, which is not the same as being on call.
+
+## Data export
+
+`POST /v1/agencies/{id}/export` returns a ZIP of one CSV per table, plus a manifest and a
+README for whoever opens it. `06_Compliance_and_Regulatory_Requirements.md` Section 8 asks for
+this as a first-class feature "not an afterthought", and the PRD's non-functional table makes
+it a portability requirement: an agency that cannot leave with its own records is locked in
+whatever the contract says.
+
+Three things about it are deliberate.
+
+**Completeness is derived, not curated.** The table list comes from the SQLAlchemy metadata, so
+a table added next year is exported without anyone remembering. A table left out has to be named
+with a reason, and a test asserts the two sets cover everything. A hand-written list goes stale
+silently, and the agency finds out what was missing after they have migrated.
+
+**Encrypted columns come out readable.** `dob_encrypted` becomes `dob`. Ciphertext keyed to a
+secret the agency does not hold is not portability, it is the appearance of it. The consequence
+is that the archive is a plaintext PHI extract — so the endpoint is owner-admin only (not even
+the auditor), and every export writes an audit row with per-table row counts, which is what
+makes "how much left, and when" an answerable question.
+
+**It refuses rather than degrades.** The archive is built in memory, so above `MAX_EXPORT_ROWS`
+the caller gets a 413 naming the limit instead of an out-of-memory kill that takes every other
+request on the instance with it. Streaming was the obvious alternative and is worse: a response
+whose body is generated after the status code has been sent cannot report a mid-stream failure,
+which is the defect this codebase just spent an increment removing from the write path.
+
+## Outbound webhooks
+
+`05_API_Specification.md` Section 7 publishes a set of events an agency's own systems can
+subscribe to. `POST /v1/webhooks` registers a URL (owner-admin only — a subscription decides
+where a stream of this agency's events goes, which makes it a security setting rather than a
+preference), and the delivery worker sends signed JSON to it.
+
+**Payloads carry identifiers and status, never PHI.** Section 7's own examples are made of
+ids — "caregiver ID, credential type, days until expiration" — and this codebase treats that
+as the contract, not as brevity. A webhook is an unauthenticated push to a URL somebody typed
+into a form, crossing the public internet to a system CareOS has no BAA with. Anything the
+receiver needs beyond an id it can fetch from the API with a token, leaving an audit trail.
+`assert_payload_carries_no_phi` refuses a payload with a PHI-shaped *field name* at any depth,
+at enqueue time, and it raises rather than filters: a producer that tried to send a name is a
+bug to fix, not a field to quietly drop. Matching on the key rather than the value is
+deliberate — no value-based check can tell a person's name from any other string.
+
+**Delivery is the same transactional outbox as the audit log.** The delivery row is written in
+the transaction that made the change being announced, and a worker sends it afterwards. Calling
+the receiver inline would make an agency's slow endpoint into CareOS's latency and an
+unreachable one into a failed clock-in — and it could announce something that then rolled back.
+Here a rollback takes the unsent webhook with it, which `test_webhooks.py` pins directly.
+
+**Signing.** Each delivery carries `CareOS-Signature: t=<unix>,v1=<hex hmac-sha256>` over
+`"<t>." + body`. The timestamp is *inside* the signed material, so a captured delivery cannot
+be replayed forever: a receiver enforcing the published 300-second tolerance has a window
+instead of an eternity. `careos.modules.webhooks.service.verify` is the receiver-side algorithm,
+kept in the codebase so the suite tests what an integrator will implement rather than a second
+implementation that agrees only with itself. The secret is returned by `POST /v1/webhooks` and
+by no other endpoint; a lost one means a new subscription.
+
+**SSRF is checked twice, and the second one is the real one.** An unrestricted webhook URL is a
+request forwarder — point it at `http://169.254.169.254/` and CareOS fetches cloud instance
+credentials on the agency's behalf. Subscription time rejects private and loopback targets so
+the agency gets a clear error; the worker re-resolves immediately before it connects, because
+DNS is not a promise and a name that resolved publicly then can resolve privately now. Redirects
+are not followed, since a 302 would let the receiver turn a validated URL into an unvalidated
+one.
+
+**Failure is bounded and never silent.** Six attempts per delivery (0s, 30s, 2m, 10m, 1h, 6h),
+then abandoned — kept, not deleted, because "did you send it?" has to be answerable either way.
+Twenty consecutive failures disables the subscription with a written reason an administrator can
+act on, so a dead URL stops accumulating a queue that will never drain. Re-activating clears the
+counter; without that a fixed endpoint would be disabled again on its next hiccup.
+`GET /v1/webhooks/{id}/deliveries` is the answer to the first question of every webhook
+integration, without needing database access.
+
+**One producer is driven by the calendar, and that needs deduplication.**
+`credential.expiring_soon` is not caused by anything a user did — the date simply arrives, and
+"expires in 12 days" is true again tomorrow. A daily job without a memory would re-send every
+notice every day until the agency muted the subscription, which is a retry storm wearing a
+feature's clothes. `enqueue(..., dedupe_on=...)` names the identifying subset of the payload —
+here the credential and the horizon, deliberately *not* the day count — and suppresses a repeat
+to a subscription that already has a matching delivery. Crossing from the 30-day window into
+the 7-day one is a different horizon, so it is announced again, which is the entire point of
+having three. Deduplication is keyed per subscription, so an integration added next month still
+receives the notice the first one already got.
+
+Two of the five events have no producer yet: `background_check.completed` waits on a screening
+vendor and `claim.status_changed` is Phase 3. They are in the enum anyway — the contract is
+published, a receiver may reasonably subscribe in advance, and adding them later would be a
+migration.
+
+Delivery is driven by `careos.workers.runner` — see *Background workers* below. Until that
+existed, everything in this section described code that ran only in tests: the queue was
+written correctly and nothing consumed it.
+
+## Background workers
+
+Three jobs run outside the request path: EVV transmission, webhook delivery, and the
+credential-expiry announcer. `python -m careos.workers.runner` is the process that runs them,
+and `docker compose up` starts it alongside the API.
+
+**It did not exist for several increments, and that was the largest gap in this system.** Every
+worker was written, tested, and green in CI while nothing called any of them — so a deployment
+would have queued EVV records that were never transmitted and webhook deliveries that were never
+sent. A queue with no consumer is a table.
+
+**Not Celery, not a cron container.** The work is three coroutines that take an `agency_id`; the
+missing part was a loop, a clock, and a way not to do it twice. The durable queue is already in
+Postgres — that is what the outbox pattern put there — so a broker would add a second datastore
+to run, a serialization format to version, and a "the queue is backed up" failure mode this
+system does not otherwise have. When a job needs fan-out or its own retry policy, that is the
+time to reach for one.
+
+**Scale across agencies, not within one.** Each job takes a Postgres advisory lock per (job,
+agency), so N replicas divide the tenants and no two ever work the same agency at once. `SKIP
+LOCKED` inside the workers is the second line — it stops two workers sending one delivery twice
+— but the lock is what makes a read-then-write job safe: the credential announcer checks for an
+existing notice before queueing one, and two workers can both read "no" before either writes.
+`docker compose up --scale worker=3` is therefore a capacity decision, not a correctness one.
+
+**One agency's failure is one agency's failure.** Every job is wrapped per agency and per tick:
+an exception is counted and logged, a job that hangs is abandoned after `JOB_TIMEOUT_SECONDS`,
+and the loop moves on. An agency with a misconfigured EVV adapter must not stop the other four
+hundred from transmitting — which is also why `CareOSWorkerJobsFailing` exists, since a loop
+that survives everything can also fail quietly forever.
+
+**Its own metrics endpoint, on its own port, behind the same bearer token as the API's.** A
+worker that reported through the API would go silent exactly when the API is healthy and the
+worker is dead — which is the case the alerts are for. `CareOSWorkerDown` catches the process
+being gone; `CareOSEvvTransmissionStalled` catches the harder one, a process that answers every
+scrape while its pass is wedged.
+
+SIGTERM stops the loop between agencies rather than mid-delivery: the current job finishes and
+commits, then the process exits. Measured at ~2 seconds in the local stack.
+
+## Multi-factor authentication
+
+`08_Security_Architecture.md` Section 1 says *required* — not recommended — for owner/admin,
+clinical supervisor, and billing/RCM. `app_user.mfa_enrolled` existed from the first migration
+and nothing ever set it or read it, which made it a column describing an intention.
+
+**TOTP written against RFC 6238 rather than pulled in as a dependency.** It is HMAC, a counter,
+and a truncation rule; the real risk of writing it is producing codes no authenticator app
+accepts, and that risk is answered directly — the suite runs the published RFC vectors, so what
+is verified is interoperability with Google Authenticator and 1Password rather than agreement
+with itself. SHA-1 deliberately: the RFC permits SHA-256, and essentially no app implements it.
+
+**Codes are single-use.** The counter that last succeeded is stored, so a code cannot be
+presented twice inside its own thirty-second window. Without that, one glance over a shoulder is
+one sign-in and the second factor is a thirty-second password. It applies across enrolment and
+login alike, which is why confirming enrolment returns a session rather than telling the user to
+sign in again with a code they just spent.
+
+**Ten recovery codes, hashed, shown once.** They are the answer to a lost phone; without them
+the agency's only owner/admin locks the agency out of itself. Hashed with the password hasher
+because each is a credential that skips the second factor, and single-use because one that
+survives its own use is a permanent password on a piece of paper.
+
+**The secret is encrypted at rest** with the same field key as DOB and tax ID. A second factor
+kept in plaintext is one a database compromise hands over alongside the password hashes it was
+meant to backstop.
+
+**Enforcement is central and cannot be laundered.** A privileged user who has not enrolled gets
+a real session that reaches the enrolment endpoints and nothing else — refusing the login
+outright would make the requirement unsatisfiable, since enrolling requires an authenticated
+call made before enrolling. `/auth/refresh` re-derives the state from the user rather than
+carrying the presented token's claim forward, which is what stops a pending session being
+refreshed into a full one through an endpoint that never asks for a code.
+
+`CAREOS_MFA_REQUIRED` gates it, and production refuses to boot without it. It is off by default
+because switching it on turns every existing privileged session into an enrolment prompt —
+correct for a deployment, noise for a database seeded ten seconds ago. TOTP verification at
+login happens either way; the flag governs only whether an *unenrolled* privileged user is
+confined to enrolment.
+
+**Replacing an authenticator requires the one in force.** Enrolling over an existing factor is
+an authentication, not a preference: without that check a stolen session was enough to move
+somebody's MFA onto the thief's device and collect fresh recovery codes on the way — verified
+against the running API before it was fixed. A recovery code is accepted as the proof, because
+the person who most needs to pair a new device is the one whose phone is gone.
+
+Caregivers are excluded from enrolling at all, and that is a guard rather than a policy: the
+caregiver app has no field to type a code into, so a caregiver who enrolled through the API
+would be locked out of the phone they clock in with — discovered at a client's door. Extending
+this to schedulers, which Section 1 asks for next, is one line in `MFA_ELIGIBLE_ROLES`.
+
+## Ending sessions vs disabling an account
+
+Two operations on the Users screen that read alike and are not the same, and the difference was
+a real hole in this codebase until recently.
+
+**Revoking sessions** invalidates every token a user is holding — the point of it is that the
+caregiver app wipes its cached client names and addresses when the API rejects a token, which
+is the remote-wipe half of `08_Security_Architecture.md` Section 6. It leaves the account
+working: the user signs in again with the same password. That is exactly right for a lost phone.
+
+**Disabling** does both: `status` stops the login path issuing tokens and the refresh path
+renewing them, and the revocation watermark kills the tokens already out there. Either half
+alone leaves a gap — status only, and a disabled account keeps working for the remaining life of
+its access token; watermark only, and the person signs straight back in.
+
+**Terminating a caregiver used to do only the second half.** Their sessions were cut off and
+their password still worked, so they could sign in seconds later and get a fresh token — while
+the audit log recorded that access had been removed. Termination now disables the account, and
+the test that proves it was written first and watched to fail against the old code.
+
+Two guards on disabling: not your own account (unrecoverable without support — revoking your own
+sessions is the reversible thing you probably meant), and not the agency's last enabled
+owner/admin (an agency with nobody able to administer it cannot even invite a replacement).
+Re-enabling deliberately does *not* clear the revocation watermark, which would resurrect every
+token issued before the disablement, including the one on the phone that was handed back.
+
+A disabled account is refused with its own error code, `ACCOUNT_INACTIVE`, so both apps can say
+"this account has been disabled — contact your administrator" instead of "invalid email or
+password", which sends someone to reset a password that was never the problem. The password is
+verified *before* that branch is reached, so only somebody with valid credentials ever sees it;
+a wrong password and an unknown address remain indistinguishable from each other.
+
+## Non-negotiable constraints
+
+From `docs/01_Product_Vision_and_Executive_Summary.md` Section 7 and
+`docs/02_Product_Requirements_Document.md` Section 4:
+
+| Constraint | Where it lives |
+|---|---|
+| HIPAA from day one | Field-level encryption (`core/crypto.py`), audit on PHI reads, RBAC |
+| Multi-tenant isolation architected in, never retrofitted | `db/rls.py`, `db/session.py`, migrations |
+| EVV compliance is not optional scope | `integrations/evv/`, `modules/scheduling/` |
+| Offline-first mobile | `client_local_uuid` dedup, `Idempotency-Key` on side-effecting mutations |
+| Auditability — attributable and immutable | `core/audit.py`, append-only grants |
+| Design for Phase 3 from Phase 1 | Phase 2/3 tables ship unused; visits carry billing fields |
+
+## Compliance status
+
+**No compliance review has been performed.** `docs/06_Compliance_and_Regulatory_Requirements.md`
+Section 9 requires healthcare-compliance counsel review before Phase 1 launch, and a
+certified billing/coding consultant before Phase 3. The EVV aggregator assignments in
+`careos/scripts/seed_reference_data.py` are marked `UNVERIFIED` and must be confirmed per
+state before operating there. No BAAs are in place, because no third-party vendor is
+integrated yet.
+
+## Contributing
+
+`make check` must pass. Beyond that, three rules specific to this codebase:
+
+1. **A new table carries `agency_id`** — inherit `TenantMixin` — **and its migration calls
+   `standard_tenant_table()`.** If it is genuinely global reference data, add it to
+   `GLOBAL_TABLES` so the omission is a decision on the record.
+2. **A new route declares its roles.** The app will not start otherwise.
+3. **Drift between `docs/` and the code is a bug** (`docs/12_Engineering_Handoff_Guide.md`
+   Section 5). If you change scope or an architectural decision, update the document in the
+   same change — not later.

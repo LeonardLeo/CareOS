@@ -1,0 +1,79 @@
+[project]
+name = "careos-api"
+version = "0.1.0"
+description = "CareOS — AI-native operating system for home-based care agencies (modular monolith API)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "python-dateutil>=2.9",
+    "pyjwt>=2.10",
+    "argon2-cffi>=23.1",
+    "cryptography>=44.0",
+    "email-validator>=2.2",
+    "structlog>=24.4",
+    "httpx>=0.28",
+    # Shared rate-limit buckets. >=5.0 for `redis.asyncio` as the supported async client and
+    # for `aclose()`; the token bucket runs as a Lua script, so `register_script` doing
+    # EVALSHA-with-NOSCRIPT-retry is load bearing rather than convenience.
+    "redis>=5.2",
+    # Metrics exposition only — no client, no push, no outbound dependency in a request path.
+    "prometheus-client>=0.21",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "types-python-dateutil",
+    # The alert-rule tests read ops/prometheus/alerts.yml. PyYAML arrives transitively via
+    # uvicorn[standard] today, which is not a reason to depend on it implicitly — a transitive
+    # dependency that disappears breaks the tests with an ImportError that names nothing.
+    "pyyaml>=6.0",
+    "types-PyYAML",
+]
+
+[build-system]
+# >=83 for PYSEC-2026-3447: below it, MANIFEST.in exclusions can be bypassed by Unicode
+# normalization and pack a file meant to stay out of an sdist into one.
+requires = ["setuptools>=83.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["careos*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM"]
+ignore = ["B008"]  # FastAPI Depends() in defaults is the documented idiom
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+# One event loop for the whole session. The SQLAlchemy engines are module-level singletons
+# holding pooled asyncpg connections bound to the loop that created them; a per-test loop
+# would leave every test after the first talking to a closed loop.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+# `services/api` on sys.path, so `from tests.conftest import ...` resolves the same way under
+# a bare `pytest` as under `python -m pytest`. Without it only the latter works — pytest puts
+# `tests/` itself on the path when the directory is not a package, and CI runs the bare form.
+pythonpath = ["."]
+filterwarnings = ["error::DeprecationWarning:careos.*"]
+
+[tool.mypy]
+python_version = "3.11"
+plugins = []
+ignore_missing_imports = true
+disallow_untyped_defs = false
+warn_unused_ignores = true

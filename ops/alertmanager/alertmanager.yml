@@ -1,0 +1,69 @@
+# Alertmanager routing.
+#
+# The two severities in `alerts.yml` exist to be routed differently, and this is where that
+# difference becomes real: `page` interrupts someone, `ticket` does not.
+#
+# **The receivers here are placeholders.** Wiring them to a real pager needs credentials this
+# repository does not and should not hold — a PagerDuty routing key, a Slack webhook. Until
+# someone does that, alerts arrive in Alertmanager's own UI and nowhere else, which is
+# genuinely not the same as being on call. That is recorded in BUILD_STATUS rather than left
+# to look finished, because a rule that fires into a void is the failure this increment set
+# out to fix.
+
+route:
+  # Group by alertname and environment so a whole-cluster failure is one notification rather
+  # than one per instance — the difference between being told "the API is down" and being sent
+  # forty pages during the same outage.
+  group_by: ["alertname", "environment"]
+  # Wait briefly before the first notification so alerts that fire together arrive together.
+  group_wait: 30s
+  group_interval: 5m
+  # How long before an unresolved alert is repeated. Four hours for tickets, overridden below
+  # for pages: a page nobody acknowledged should come back much sooner than that.
+  repeat_interval: 4h
+  receiver: ticket-placeholder
+
+  routes:
+    - matchers:
+        - severity = "page"
+      receiver: page-placeholder
+      group_wait: 0s
+      repeat_interval: 30m
+
+    # EVV compliance alerts are grouped by outcome as well, because "the aggregator is
+    # rejecting records" and "no adapter is configured for this state" go to different people
+    # and have different fixes.
+    - matchers:
+        - alertname =~ "CareOSEvv.*"
+      receiver: ticket-placeholder
+      group_by: ["alertname", "environment", "outcome"]
+
+inhibit_rules:
+  # While the API is down, everything else it exports is a consequence rather than a cause.
+  # Without this, an outage pages once for the outage and then again for every symptom.
+  - source_matchers:
+      - alertname = "CareOSApiDown"
+    target_matchers:
+      - severity = "ticket"
+    equal: ["environment"]
+
+  # The prolonged-degradation page supersedes the ticket it escalated from; both firing means
+  # two notifications about one condition.
+  - source_matchers:
+      - alertname = "CareOSRateLimitDegradedProlonged"
+    target_matchers:
+      - alertname = "CareOSRateLimitDegraded"
+    equal: ["environment"]
+
+receivers:
+  - name: page-placeholder
+    # Replace with pagerduty_configs / opsgenie_configs and a routing key from the secrets
+    # manager. Deliberately not a webhook to a URL that would silently 404.
+    webhook_configs:
+      - url: http://alert-sink:9099/page
+        send_resolved: true
+
+  - name: ticket-placeholder
+    webhook_configs:
+      - url: http://alert-sink:9099/ticket
+        send_resolved: true

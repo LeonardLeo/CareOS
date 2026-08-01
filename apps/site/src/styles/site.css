@@ -1,0 +1,1277 @@
+/* The public site's design system.
+ *
+ * A deliberate break from the admin console. The console is a tool: dense, quiet, tuned for
+ * someone who looks at it forty times a day and should never notice it. This is the opposite
+ * job — read once, by an agency owner who has never heard of us, deciding whether to spend
+ * another ten seconds.
+ *
+ * The register is editorial rather than technological. Home care is a human business run on
+ * thin margins by people who are tired, and a site that looks like a developer-tools landing
+ * page is talking to the wrong person. So: a warm paper ground, a serif with actual character
+ * for display, generous rules and whitespace, and numbers set like a printed report.
+ *
+ * One visual argument runs through every page. A schedule is a grid of time, and the thing
+ * that costs an agency money is a hole in it. The hairline "time ruler" texture, the coverage
+ * board, and the single red accent are all the same idea, and red is used for nothing else.
+ *
+ * Still self-contained: fonts are npm packages served from our own origin, and there is no
+ * icon library, no analytics, and no third-party request of any kind. A static page with no
+ * outbound calls loads on a bad connection and leaks nothing about who visited.
+ */
+
+/* --- Tokens ------------------------------------------------------------------------ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Warm neutrals. A pure #FFF ground reads clinical and screen-lit; paper reads printed. */
+  --paper: #f8f6f1;
+  --paper-raised: #fffefb;
+  --paper-sunken: #f1eee7;
+  --ink: #16130f;
+  --ink-2: #4a443c;
+  /* Muted text. Darker than it looks like it wants to be: at #7c746a it measured 3.97:1 on
+   * the sunken ground, which fails AA for the eyebrows, figure sources, and field hints that
+   * use it. Muted has to mean quiet, not unreadable. */
+  --ink-3: #6f675c;
+  --rule: #e2dcd2;
+  --rule-strong: #cec6b9;
+
+  /* Deep ink blue. Serious rather than bright — this is a product that touches PHI. */
+  --accent: #1b3a6b;
+  --accent-soft: #e8eef7;
+  --on-accent: #fffefb;
+
+  /* The gap. Used for unfilled shifts and for nothing else, on any page, ever. */
+  --signal: #b23a26;
+  --signal-soft: #f9e9e4;
+
+  --ok: #2f6b3f;
+
+  --measure: 62ch;
+  --gutter: clamp(1.25rem, 4vw, 2.5rem);
+  --shell: 76rem;
+  --shell-narrow: 46rem;
+
+  --radius: 4px;
+  --radius-lg: 10px;
+
+  /* Fraunces carries the voice; Inter does the work. Both self-hosted via @fontsource. */
+  --display: "Fraunces Variable", "Iowan Old Style", Georgia, serif;
+  --sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* A fifth-based spacing scale. Fewer sizes used consistently beats many used loosely. */
+  --s1: 0.25rem;
+  --s2: 0.5rem;
+  --s3: 0.75rem;
+  --s4: 1rem;
+  --s5: 1.5rem;
+  --s6: 2rem;
+  --s7: 3rem;
+  --s8: 4.5rem;
+  --s9: 7rem;
+
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #12100d;
+    --paper-raised: #1a1713;
+    --paper-sunken: #0d0b09;
+    --ink: #f2ede4;
+    --ink-2: #bab2a6;
+    --ink-3: #8b8377;
+    --rule: #2b2620;
+    --rule-strong: #423b32;
+
+    --accent: #8fb4ea;
+    --accent-soft: #182337;
+    --on-accent: #12100d;
+
+    --signal: #e8705a;
+    --signal-soft: #2c1712;
+
+    --ok: #6fbf85;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  font-synthesis-weight: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+figure,
+blockquote,
+dl,
+dd {
+  margin: 0;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+img,
+svg {
+  max-width: 100%;
+  display: block;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/*
+ * `main` is focusable only so the skip link can hand focus to it; it is never in the tab
+ * order. Ringing the entire page when that happens indicates nothing useful — the reader
+ * already knows where they went, because they pressed the link that took them there.
+ */
+main:focus,
+main:focus-visible {
+  outline: none;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* --- Typography ------------------------------------------------------------------- */
+/*
+ * Fraunces is a variable font with optical-size, softness, and "wonk" axes. `opsz` is the one
+ * that matters: without it, display sizes render with text-size letterforms and look thin and
+ * generic. `WONK` on at large sizes gives the characterful terminals that make it recognisable
+ * as a choice rather than a default.
+ */
+
+.display {
+  font-family: var(--display);
+  font-weight: 600;
+  line-height: 1.02;
+  letter-spacing: -0.028em;
+  font-variation-settings:
+    "SOFT" 20,
+    "WONK" 1,
+    "opsz" 120;
+  text-wrap: balance;
+}
+
+.d1 {
+  font-size: clamp(2.6rem, 7.2vw, 5.4rem);
+}
+.d2 {
+  font-size: clamp(2.1rem, 4.6vw, 3.4rem);
+}
+.d3 {
+  font-size: clamp(1.5rem, 2.6vw, 2.05rem);
+  letter-spacing: -0.02em;
+  line-height: 1.12;
+}
+
+.lede {
+  font-size: clamp(1.1rem, 1.9vw, 1.35rem);
+  line-height: 1.5;
+  color: var(--ink-2);
+  max-width: 52ch;
+  text-wrap: pretty;
+}
+
+.eyebrow {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-feature-settings: "case" 1;
+}
+
+.prose p {
+  max-width: var(--measure);
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+.prose p + p {
+  margin-top: var(--s4);
+}
+
+.prose strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 0.86em;
+  letter-spacing: -0.01em;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.86em;
+  background: var(--paper-sunken);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.08em 0.34em;
+}
+
+.num {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* --- Layout ------------------------------------------------------------------------ */
+
+.shell {
+  width: 100%;
+  max-width: var(--shell);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.shell--narrow {
+  max-width: var(--shell-narrow);
+}
+
+.section {
+  padding-block: clamp(3.5rem, 9vw, var(--s9));
+}
+
+.section--tight {
+  padding-block: clamp(2.5rem, 6vw, var(--s8));
+}
+
+.section--sunken {
+  background: var(--paper-sunken);
+}
+
+.section--ink {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.section--ink .lede,
+.section--ink .prose p {
+  color: color-mix(in srgb, var(--paper) 72%, transparent);
+}
+
+/*
+ * 68% rather than the 55% this wanted to be. The mix is symmetrical but contrast is not: the
+ * same fraction of light-on-ink measures 8.2:1 while ink-on-light measures 4.0:1, so the value
+ * that looked right in light mode failed AA in dark. Set from the worse of the two.
+ */
+.section--ink .eyebrow {
+  color: color-mix(in srgb, var(--paper) 68%, transparent);
+}
+
+.rule {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: 0;
+}
+
+/* An editorial two-column split: a sticky heading beside a scrolling column. The layout that
+   makes a long page feel like a document rather than a stack of boxes. */
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: clamp(2rem, 6vw, 5rem);
+  align-items: start;
+}
+
+.split__aside {
+  position: sticky;
+  top: calc(var(--s7) + 1rem);
+}
+
+@media (max-width: 60rem) {
+  .split {
+    grid-template-columns: 1fr;
+    gap: var(--s5);
+  }
+  .split__aside {
+    position: static;
+  }
+}
+
+.stack-4 > * + * {
+  margin-top: var(--s4);
+}
+.stack-5 > * + * {
+  margin-top: var(--s5);
+}
+.stack-6 > * + * {
+  margin-top: var(--s6);
+}
+
+/* --- The time ruler ----------------------------------------------------------------
+ *
+ * The site's one piece of ornament, and it is the product's subject matter: a schedule is a
+ * grid of time. Hairlines at a fixed rhythm, fading out so they never compete with the text
+ * over them. Pure CSS — no image, no request, no layout shift.
+ */
+
+.ruled {
+  position: relative;
+  isolation: isolate;
+}
+
+.ruled::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--rule) 0 1px,
+    transparent 1px 5.5rem
+  );
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18%, #000 62%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 18%, #000 62%, transparent);
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+/* --- Header ------------------------------------------------------------------------ */
+
+.masthead {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: color-mix(in srgb, var(--paper) 86%, transparent);
+  backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid transparent;
+  transition: border-color 200ms var(--ease);
+}
+
+.masthead[data-scrolled="true"] {
+  border-bottom-color: var(--rule);
+}
+
+.masthead__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s5);
+  height: 4.25rem;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  text-decoration: none;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 1.16rem;
+  letter-spacing: -0.02em;
+  font-variation-settings:
+    "SOFT" 20,
+    "WONK" 1,
+    "opsz" 24;
+}
+
+.brand__mark {
+  width: 1.6rem;
+  height: 1.6rem;
+  flex: none;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: clamp(1rem, 2.4vw, 1.9rem);
+  font-size: 0.92rem;
+}
+
+.nav__link {
+  text-decoration: none;
+  color: var(--ink-2);
+  position: relative;
+  padding-block: 0.35rem;
+  transition: color 140ms var(--ease);
+}
+
+.nav__link:hover {
+  color: var(--ink);
+}
+
+/* Underline grows from the left rather than fading in. Cheap, and it reads as deliberate. */
+.nav__link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 180ms var(--ease);
+}
+
+.nav__link:hover::after,
+.nav__link[aria-current="page"]::after {
+  transform: scaleX(1);
+}
+
+.nav__link[aria-current="page"] {
+  color: var(--ink);
+}
+
+@media (max-width: 56rem) {
+  .nav__link--wide {
+    display: none;
+  }
+}
+
+/* --- Buttons ----------------------------------------------------------------------- */
+
+.btn {
+  --btn-bg: var(--ink);
+  --btn-fg: var(--paper);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: 0.78rem 1.35rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    transform 140ms var(--ease),
+    background 140ms var(--ease),
+    border-color 140ms var(--ease);
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+.btn--accent {
+  --btn-bg: var(--accent);
+  --btn-fg: var(--on-accent);
+}
+
+.btn--ghost {
+  --btn-bg: transparent;
+  --btn-fg: var(--ink);
+  border-color: var(--rule-strong);
+}
+
+.btn--ghost:hover {
+  border-color: var(--ink);
+}
+
+.btn--sm {
+  padding: 0.5rem 0.95rem;
+  font-size: 0.88rem;
+}
+
+.section--ink .btn--ghost {
+  --btn-fg: var(--paper);
+  border-color: color-mix(in srgb, var(--paper) 34%, transparent);
+}
+
+.section--ink .btn--ghost:hover {
+  border-color: var(--paper);
+}
+
+/* An arrow that steps forward on hover. The only decorative motion on a text link. */
+.arrow {
+  display: inline-block;
+  transition: transform 180ms var(--ease);
+}
+
+.btn:hover .arrow,
+.textlink:hover .arrow {
+  transform: translateX(3px);
+}
+
+.textlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  padding-bottom: 1px;
+}
+
+.textlink:hover {
+  border-bottom-color: currentColor;
+}
+
+/* --- Reveal on scroll ---------------------------------------------------------------
+ *
+ * Applied by `components/reveal.tsx`. The base state is *visible*: if the observer never
+ * runs — no JavaScript, an old browser, a crawler — the page is a normal page rather than a
+ * blank one. `data-reveal` is set by the component itself on mount, so hiding only ever
+ * happens where something exists to un-hide it.
+ */
+
+[data-reveal="hidden"] {
+  opacity: 0;
+  transform: translateY(14px);
+}
+
+[data-reveal="shown"] {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 620ms var(--ease),
+    transform 620ms var(--ease);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal="hidden"] {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --- Hero -------------------------------------------------------------------------- */
+
+.hero {
+  padding-block: clamp(3.5rem, 9vw, 7rem) clamp(2.5rem, 6vw, 4.5rem);
+}
+
+.hero__mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: var(--s5);
+}
+
+.hero__pip {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--signal);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--signal) 60%, transparent);
+  animation: pip 2.8s var(--ease) infinite;
+}
+
+@keyframes pip {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--signal) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 0.55rem transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.hero h1 {
+  max-width: 15ch;
+}
+
+.hero h1 em {
+  font-style: normal;
+  color: var(--signal);
+}
+
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  margin-top: var(--s6);
+}
+
+.hero__note {
+  margin-top: var(--s4);
+  font-size: 0.9rem;
+  color: var(--ink-3);
+}
+
+/* --- Coverage board ---------------------------------------------------------------- */
+
+.board {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  background: var(--paper-raised);
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 4%), 0 16px 40px -28px rgb(0 0 0 / 24%);
+}
+
+.board__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-sunken);
+  font-size: 0.8rem;
+}
+
+.board__title {
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.board__legend {
+  display: flex;
+  gap: 1.1rem;
+  color: var(--ink-3);
+}
+
+.board__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.swatch {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 2px;
+  display: inline-block;
+}
+.swatch--filled {
+  background: var(--accent);
+}
+.swatch--gap {
+  background: var(--signal);
+}
+
+.board__grid {
+  padding: 1rem 1.1rem 1.25rem;
+  display: grid;
+  gap: 0.42rem;
+}
+
+.board__row {
+  display: grid;
+  grid-template-columns: 2.6rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.board__day {
+  font-size: 0.7rem;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.board__track {
+  position: relative;
+  height: 0.95rem;
+  background: var(--paper-sunken);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.board__bar {
+  position: absolute;
+  inset-block: 0;
+  left: var(--start);
+  width: var(--width);
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.9;
+  /* Grow from the left as the board comes into view, staggered per bar. */
+  transform-origin: left;
+  animation: grow 700ms var(--ease) backwards;
+  animation-delay: var(--delay, 0ms);
+}
+
+@keyframes grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.board__bar--gap {
+  background: var(--signal);
+  opacity: 1;
+}
+
+.board__bar--gap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--signal);
+  border-radius: inherit;
+  animation: breathe 2.8s var(--ease) infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* --- Figures ----------------------------------------------------------------------- */
+
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  border-top: 1px solid var(--rule);
+}
+
+.figure {
+  padding: var(--s5) var(--s5) var(--s5) 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+@media (min-width: 44rem) {
+  .figure + .figure {
+    padding-left: var(--s5);
+    border-left: 1px solid var(--rule);
+  }
+}
+
+.figure__value {
+  font-family: var(--display);
+  font-variation-settings:
+    "SOFT" 20,
+    "WONK" 0,
+    "opsz" 90;
+  font-size: clamp(2.4rem, 5vw, 3.3rem);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.figure__value--signal {
+  color: var(--signal);
+}
+
+.figure__label {
+  margin-top: var(--s3);
+  color: var(--ink-2);
+  font-size: 0.97rem;
+  max-width: 26ch;
+  text-wrap: pretty;
+}
+
+.figure__source {
+  margin-top: var(--s2);
+  font-size: 0.76rem;
+  color: var(--ink-3);
+}
+
+/* --- Cards and lists --------------------------------------------------------------- */
+
+.cards {
+  display: grid;
+  gap: var(--s4);
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+}
+
+.card {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  background: var(--paper-raised);
+  padding: var(--s5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  transition:
+    border-color 180ms var(--ease),
+    transform 180ms var(--ease);
+}
+
+.card--link:hover {
+  border-color: var(--rule-strong);
+  transform: translateY(-2px);
+}
+
+.card--now {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.tag {
+  align-self: flex-start;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.55rem;
+  border-radius: 99px;
+  background: var(--paper-sunken);
+  color: var(--ink-3);
+}
+
+.tag--now {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ticks {
+  display: grid;
+  gap: 0.5rem;
+  font-size: 0.94rem;
+  color: var(--ink-2);
+}
+
+.ticks li {
+  display: grid;
+  grid-template-columns: 0.9rem minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: start;
+}
+
+.ticks li::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--rule-strong);
+  margin-top: 0.62em;
+}
+
+.card--now .ticks li::before {
+  background: var(--accent);
+}
+
+/* --- Definition rows --------------------------------------------------------------- */
+
+.rows {
+  border-top: 1px solid var(--rule);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
+  gap: clamp(1rem, 4vw, 3rem);
+  padding-block: var(--s5);
+  border-bottom: 1px solid var(--rule);
+}
+
+@media (max-width: 46rem) {
+  .row {
+    grid-template-columns: 1fr;
+    gap: var(--s2);
+  }
+}
+
+.row__term {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.row__detail {
+  color: var(--ink-2);
+  max-width: var(--measure);
+  text-wrap: pretty;
+}
+
+/* --- Numbered steps ---------------------------------------------------------------- */
+
+.steps {
+  counter-reset: step;
+  display: grid;
+  gap: var(--s5);
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr);
+  gap: var(--s4);
+  align-items: start;
+}
+
+.step::before {
+  counter-increment: step;
+  content: counter(step, decimal-leading-zero);
+  font-family: var(--display);
+  font-variation-settings: "opsz" 60;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--ink-3);
+  line-height: 1;
+  padding-top: 0.1em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Quote ------------------------------------------------------------------------- */
+
+.pull {
+  font-family: var(--display);
+  font-variation-settings:
+    "SOFT" 24,
+    "WONK" 1,
+    "opsz" 96;
+  font-size: clamp(1.5rem, 3.4vw, 2.35rem);
+  line-height: 1.18;
+  letter-spacing: -0.022em;
+  max-width: 24ch;
+  text-wrap: balance;
+  /* Hanging punctuation, done by hand because support is uneven. The opening quote sits in
+     the margin so the first letter aligns optically with the text above it. */
+  text-indent: -0.42em;
+}
+
+/* --- Forms ------------------------------------------------------------------------- */
+
+.field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.field__label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.field__hint {
+  font-size: 0.8rem;
+  color: var(--ink-3);
+}
+
+.input,
+.textarea,
+.select {
+  font: inherit;
+  font-size: 0.98rem;
+  color: var(--ink);
+  background: var(--paper-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  padding: 0.68rem 0.8rem;
+  width: 100%;
+  transition: border-color 140ms var(--ease);
+}
+
+.input:focus,
+.textarea:focus,
+.select:focus {
+  border-color: var(--accent);
+}
+
+.textarea {
+  min-height: 8rem;
+  resize: vertical;
+}
+
+/* --- Footer ------------------------------------------------------------------------ */
+
+.footer {
+  border-top: 1px solid var(--rule);
+  padding-block: var(--s7) var(--s6);
+  background: var(--paper-sunken);
+}
+
+/*
+ * Stacked first, columns only once there is room for them.
+ *
+ * This was a single unconditional `minmax(0, 2fr) repeat(auto-fit, minmax(9rem, 1fr))`. On a
+ * phone `auto-fit` still laid down two 9rem tracks, and since the brand column's minimum was
+ * 0, it was the one that gave way: it collapsed to about 20px, the wordmark painted straight
+ * across the "Product" heading, and the paragraph beneath it set one word per line down the
+ * length of the page. `auto-fit` only removes tracks that are *empty* — it will not reflow to
+ * rescue a track whose floor is zero, so the narrow case has to be stated rather than assumed.
+ */
+.footer__grid {
+  display: grid;
+  gap: var(--s6);
+  grid-template-columns: 1fr;
+}
+
+/* Two-up: the groups share a row, the brand block keeps the full width above them. */
+@media (min-width: 34rem) {
+  .footer__grid {
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  }
+  .footer__grid > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 56rem) {
+  .footer__grid {
+    grid-template-columns: minmax(14rem, 2fr) repeat(auto-fit, minmax(9rem, 1fr));
+  }
+  .footer__grid > :first-child {
+    grid-column: auto;
+  }
+}
+
+.footer__heading {
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: var(--s3);
+}
+
+.footer__links {
+  display: grid;
+  gap: 0.55rem;
+  font-size: 0.93rem;
+}
+
+.footer__links a {
+  color: var(--ink-2);
+  text-decoration: none;
+}
+
+.footer__links a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.footer__base {
+  margin-top: var(--s7);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--rule);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3) var(--s5);
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--ink-3);
+}
+
+/* --- Utilities --------------------------------------------------------------------- */
+
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 0.7rem 1.1rem;
+  border-radius: 0 0 var(--radius) 0;
+}
+
+.skip:focus {
+  left: 0;
+}
+
+.vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.scroller {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* --- Legal pages ------------------------------------------------------------------- */
+/*
+ * A comfortable measure and real paragraph rhythm. These are the pages most likely to be
+ * rendered as an unreadable wall, and the ones a compliance officer reads end to end.
+ */
+
+.legal h2 {
+  font-family: var(--display);
+  font-variation-settings:
+    "SOFT" 20,
+    "WONK" 0,
+    "opsz" 40;
+  font-size: 1.3rem;
+  font-weight: 600;
+  letter-spacing: -0.018em;
+  margin-top: var(--s7);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--rule);
+}
+
+.legal h2:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.legal h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: var(--s5);
+}
+
+.legal p,
+.legal li {
+  color: var(--ink-2);
+  max-width: var(--measure);
+  text-wrap: pretty;
+}
+
+.legal p + p,
+.legal h2 + p,
+.legal h3 + p {
+  margin-top: var(--s4);
+}
+
+.legal ul {
+  margin-top: var(--s4);
+  display: grid;
+  gap: 0.6rem;
+}
+
+/*
+ * The bullet is positioned, not a grid track.
+ *
+ * This was `display: grid` with a `0.9rem` marker column, which works only while the item's
+ * content is a single text run. Every child of a grid container is a grid item — including an
+ * anonymous run of text — so an item written as `<strong>Lead-in.</strong> the rest` became
+ * two items, and the rest of the sentence was placed in the *marker* track and wrapped at
+ * 14px. One list item on the HIPAA page rendered 1096px tall, a word per line. Taking the
+ * marker out of flow means the item lays out as ordinary inline content no matter how many
+ * elements the sentence is made of.
+ */
+.legal ul li {
+  position: relative;
+  padding-left: 1.45rem;
+}
+
+.legal ul li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--rule-strong);
+}
+
+/*
+ * `min-width` is what makes the `.scroller` wrapper do anything. With `width: 100%` alone a
+ * four-column table on a phone does not overflow — it complies, crushing "Hosting, managed
+ * database, object storage" into a 70px column six lines tall. Given a floor it overflows
+ * instead, and the wrapper scrolls, which is the behaviour the wrapper was added for.
+ */
+.legal table {
+  width: 100%;
+  min-width: 42rem;
+  border-collapse: collapse;
+  margin-top: var(--s4);
+  font-size: 0.94rem;
+}
+
+.legal th,
+.legal td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.7rem 1rem 0.7rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.legal th {
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.legal td {
+  color: var(--ink-2);
+}
+
+/* A raised surface inside an inverted section keeps its own foreground.
+ *
+ * `.section--ink` sets `color: var(--paper)` for the section's own text. A `.card` inside it
+ * is still a paper-coloured surface, so anything inheriting that colour — the display heading
+ * in particular — rendered near-white on near-white and was effectively invisible. Caught by
+ * looking at the page, not by any build step: the markup was valid and the contrast failure
+ * lived entirely in the cascade. */
+.section--ink .card {
+  color: var(--ink);
+}
+
+.section--ink .card .lede,
+.section--ink .card .ticks {
+  color: var(--ink-2);
+}
+
+/* A reading column inside the full-width shell.
+ *
+ * Not `.shell--narrow`, which centres itself and therefore starts ~200px further right than
+ * the page header above it — the eye reads that as an accidental indent rather than as a
+ * measure. This keeps the left edge of body text flush with the heading it belongs to, which
+ * is the whole point of having a grid.
+ *
+ * `.shell--narrow` is still correct where the block is centred on purpose: the closing calls
+ * to action set `text-align: center`, and there the centring is the design. */
+.column {
+  max-width: var(--shell-narrow);
+}

@@ -1,0 +1,13 @@
+# Machine-readable security contact, per RFC 9116.
+#
+# The point of this file is that a researcher who finds something at 2am does not have to
+# guess at an address. Expires is mandatory and is deliberately short: a security.txt that
+# outlived the team behind it sends reports into a mailbox nobody reads, which is worse than
+# having no file at all. Renew it, or delete it.
+
+Contact: mailto:security@careos.example
+Expires: 2027-07-31T23:59:59.000Z
+Preferred-Languages: en, es
+Canonical: https://careos.example/.well-known/security.txt
+Policy: https://careos.example/security/
+Acknowledgments: https://careos.example/security/

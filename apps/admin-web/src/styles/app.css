@@ -1,0 +1,1368 @@
+/* Component styles, built entirely from the tokens. */
+
+/* --- Shell: a console, not a marketing page ------------------------------ */
+
+/*
+ * `minmax(0, 1fr)` rather than `1fr`. A grid track sized `1fr` still has `min-width: auto`,
+ * so it refuses to shrink below its content — one wide table inside `main` pushed the whole
+ * grid past the viewport, and both the sidebar and the main column painted up to 369px
+ * outside the shell that was supposed to contain them. The `minmax(0, …)` floor lets the
+ * column shrink and hands the overflow to `.table-wrap`, which is built to scroll.
+ */
+.shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: var(--space-4) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+}
+
+.brand__mark {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  display: grid;
+  place-items: center;
+  color: var(--on-accent);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  flex-shrink: 0;
+}
+
+.brand__text {
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
+.brand__sub {
+  display: block;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-regular);
+  color: var(--ink-muted);
+  letter-spacing: 0;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.nav__link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.nav__link:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.nav__link[data-active="true"] {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+/* A count beside a nav item, so an unattended queue is visible without opening it. */
+.nav__count {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--critical-wash);
+  color: var(--critical);
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar__footer {
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Language switcher: a segmented pair, not two loose buttons. The active language is marked
+   with aria-current rather than `disabled`, so it stays reachable; the styling here has to
+   carry the "this one is selected" signal that a disabled control would have given for free. */
+.langswitch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+}
+
+.langswitch__label {
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
+}
+
+.langswitch__options {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.langswitch__option {
+  padding: 3px var(--space-3);
+  border: 0;
+  background: var(--surface-raised);
+  color: var(--ink-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.langswitch__option + .langswitch__option {
+  border-left: 1px solid var(--border-strong);
+}
+
+.langswitch__option:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.langswitch__option[aria-current="true"] {
+  background: var(--accent-wash);
+  color: var(--accent);
+  cursor: default;
+}
+
+.sidebar__role {
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: var(--weight-semibold);
+  padding: 0 var(--space-2);
+}
+
+.main {
+  padding: var(--space-5) var(--space-6) var(--space-7);
+  max-width: var(--content-max);
+  width: 100%;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.page-title {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.page-subtitle {
+  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+  margin-top: var(--space-1);
+  max-width: 62ch;
+}
+
+/* --- Card ---------------------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-4);
+  overflow: hidden;
+}
+
+.card__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+.card__title {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.01em;
+}
+
+.card__subtitle {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  margin-top: 2px;
+  max-width: 70ch;
+}
+
+.card__body {
+  padding: var(--space-4);
+}
+
+.card__body--flush {
+  padding: 0;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(21rem, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+/* --- Stat tiles ---------------------------------------------------------- */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  display: block;
+}
+
+.stat--link {
+  color: inherit;
+}
+
+.stat--link:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  text-decoration: none;
+}
+
+.stat__label {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  font-weight: var(--weight-semibold);
+}
+
+.stat__row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+}
+
+.stat__value {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.stat__value--critical {
+  color: var(--critical);
+}
+.stat__value--warning {
+  color: var(--warning);
+}
+.stat__value--good {
+  color: var(--good);
+}
+
+.stat__hint {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  margin-top: 2px;
+}
+
+/* --- Hero figure: exactly one per view ----------------------------------- */
+
+.hero {
+  padding: var(--space-2) 0;
+}
+
+.hero__value {
+  font-size: var(--text-hero);
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.hero__value--critical {
+  color: var(--critical);
+}
+.hero__value--warning {
+  color: var(--warning);
+}
+.hero__value--good {
+  color: var(--good);
+}
+
+.hero__label {
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+  margin-top: var(--space-2);
+}
+
+.hero__detail {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  margin-top: var(--space-1);
+}
+
+/* --- Sparkline ----------------------------------------------------------- */
+
+.sparkline {
+  display: block;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.sparkline__line {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.sparkline__end {
+  fill: var(--accent);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+/* --- Meter --------------------------------------------------------------- */
+
+.meter + .meter {
+  margin-top: var(--space-4);
+}
+
+.meter__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.meter__label {
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+}
+
+.meter__value {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.meter__total {
+  color: var(--ink-muted);
+  font-weight: var(--weight-regular);
+  font-size: var(--text-sm);
+}
+
+.meter__track {
+  height: 8px;
+  background: var(--track);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.meter__fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+}
+
+.meter__fill--good {
+  background: var(--good);
+}
+.meter__fill--warning {
+  background: var(--warning);
+}
+.meter__fill--critical {
+  background: var(--critical);
+}
+
+.meter__caption {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  margin-top: var(--space-2);
+}
+
+/* --- Funnel -------------------------------------------------------------- */
+
+.funnel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.funnel__row {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr 3rem;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.funnel__label {
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+  text-transform: capitalize;
+}
+
+.funnel__track {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.funnel__bar {
+  height: 20px;
+  /* Rounded data-end, squared at the baseline it grows from. */
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  min-width: 3px;
+}
+
+.funnel__count {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.funnel__conversion {
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* --- Score bar ----------------------------------------------------------- */
+
+.scorebar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 11rem;
+}
+
+.scorebar__track {
+  flex: 1;
+  height: 8px;
+  background: var(--track);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  display: flex;
+  /* 2px surface gap between touching segments — never a border around them. */
+  gap: 2px;
+}
+
+.scorebar__fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius-full);
+}
+
+.scorebar__segment:first-child {
+  border-radius: var(--radius-full) 0 0 var(--radius-full);
+}
+
+.scorebar__segment:last-child {
+  border-radius: 0 var(--radius-full) var(--radius-full) 0;
+}
+
+.scorebar__value {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  min-width: 2ch;
+  text-align: right;
+}
+
+/* --- Schedule timeline --------------------------------------------------- */
+
+.timeline {
+  padding: var(--space-2) 0;
+}
+
+.timeline__hours {
+  position: relative;
+  height: 1rem;
+  margin-left: 4.5rem;
+  margin-bottom: var(--space-1);
+}
+
+.timeline__hour {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline__row {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr;
+  align-items: center;
+  min-height: 30px;
+}
+
+.timeline__row:hover .timeline__lane {
+  background: var(--surface-hover);
+}
+
+/*
+ * Wraps rather than overflows. The weekday and the date are both `nowrap`, and at the narrow
+ * end of the day column "Aug 1" painted up to 26px outside it — over the timeline itself. A
+ * second line is the right answer here: the column is a label, and losing the date to make
+ * one line fit would cost the reader the thing they are scanning for.
+ */
+.timeline__day {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 var(--space-2);
+  padding-right: var(--space-3);
+}
+
+.timeline__dow {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--ink-secondary);
+}
+
+.timeline__date {
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.timeline__lane {
+  position: relative;
+  height: 24px;
+  border-top: 1px solid var(--gridline);
+  border-radius: var(--radius-sm);
+}
+
+.timeline__row:last-of-type .timeline__lane {
+  border-bottom: 1px solid var(--gridline);
+}
+
+.timeline__gridline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--gridline);
+}
+
+.timeline__quiet {
+  position: absolute;
+  left: var(--space-2);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
+}
+
+.timeline__visit {
+  position: absolute;
+  top: 5px;
+  height: 14px;
+  border-radius: var(--radius-sm);
+  min-width: 6px;
+}
+
+.timeline__visit--open {
+  background: var(--critical);
+}
+
+.timeline__visit--assigned {
+  background: var(--series-1);
+  opacity: 0.55;
+}
+
+.timeline__visit--selected {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.timeline__legend {
+  display: flex;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+  margin-left: 4.5rem;
+}
+
+.legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--ink-secondary);
+}
+
+.legend__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.legend__swatch--open {
+  background: var(--critical);
+}
+
+.legend__swatch--assigned {
+  background: var(--series-1);
+  opacity: 0.55;
+}
+
+/* --- Badges and status --------------------------------------------------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.badge--critical {
+  background: var(--critical-wash);
+  color: var(--critical);
+}
+.badge--warning {
+  background: var(--warning-wash);
+  color: var(--warning);
+}
+.badge--serious {
+  background: var(--serious-wash);
+  color: var(--serious);
+}
+.badge--info {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+.badge--good {
+  background: var(--good-wash);
+  color: var(--good);
+}
+.badge--neutral {
+  background: var(--surface-sunken);
+  color: var(--ink-secondary);
+}
+
+/* --- Table --------------------------------------------------------------- */
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+/*
+ * `min-width` is what makes `.table-wrap` do anything. With `width: 100%` alone a table on a
+ * narrow screen does not overflow — it complies, crushing a job title into a 45px column
+ * eight lines tall. Given a floor it overflows instead, and the wrapper scrolls, which is
+ * the behaviour the wrapper was added for.
+ */
+.table {
+  width: 100%;
+  min-width: 48rem;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.table th {
+  text-align: left;
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  font-weight: var(--weight-semibold);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+/* Columns of numbers align; standalone figures do not use tabular. */
+.table td.num,
+.table th.num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.table tbody tr:hover {
+  background: var(--surface-hover);
+}
+
+.table tbody tr[data-selected="true"] {
+  background: var(--accent-wash);
+}
+
+/* --- Empty and error states ---------------------------------------------- */
+
+.empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+}
+
+.empty__title {
+  font-weight: var(--weight-medium);
+  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+}
+
+.empty__detail {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  margin-top: var(--space-1);
+  max-width: 48ch;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.error-note {
+  display: flex;
+  gap: var(--space-3);
+  background: var(--critical-wash);
+  border: 1px solid var(--critical);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.error-note__icon {
+  color: var(--critical);
+  font-weight: var(--weight-semibold);
+}
+
+.error-note__title {
+  font-weight: var(--weight-semibold);
+  color: var(--critical);
+  font-size: var(--text-sm);
+}
+
+.error-note__detail {
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+  margin-top: 2px;
+}
+
+/* A standing condition, not a failure. Warning tones rather than critical ones: it asks to
+   be read once and understood, not acted on urgently. */
+.info-note {
+  display: flex;
+  gap: var(--space-3);
+  background: var(--warning-wash);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.info-note__icon {
+  color: var(--warning);
+  font-weight: var(--weight-semibold);
+  font-style: italic;
+}
+
+.info-note__title {
+  font-weight: var(--weight-semibold);
+  color: var(--warning);
+  font-size: var(--text-sm);
+}
+
+.info-note__detail {
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+  margin-top: 2px;
+  max-width: 70ch;
+}
+
+.notice {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  background: var(--good-wash);
+  border: 1px solid var(--good);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  font-size: var(--text-sm);
+}
+
+/* --- AI factors ---------------------------------------------------------- */
+
+.factors {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.factor {
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--text-xs);
+  color: var(--ink-secondary);
+}
+
+/* A colored dot beside the text carries identity — the text itself never wears the
+   data color, which would be illegible for the lighter slots. */
+.factor__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  align-self: center;
+}
+
+/* --- Suggestions --------------------------------------------------------- */
+
+.suggestion {
+  border-top: 1px solid var(--border);
+  padding: var(--space-4);
+}
+
+.suggestion:first-child {
+  border-top: none;
+}
+
+.suggestion:hover {
+  background: var(--surface-hover);
+}
+
+.suggestion__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.suggestion__name {
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-base);
+}
+
+.suggestion__meta {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  margin-top: 1px;
+}
+
+.suggestion__warning {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--warning-wash);
+  color: var(--warning);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}
+
+.suggestion__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+/* --- Buttons and forms --------------------------------------------------- */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.button:hover {
+  background: var(--accent-hover);
+  text-decoration: none;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.button--secondary {
+  background: var(--surface-raised);
+  border-color: var(--border-strong);
+  color: var(--ink);
+}
+
+.button--secondary:hover {
+  background: var(--surface-hover);
+}
+
+.button--small {
+  padding: 3px var(--space-3);
+  font-size: var(--text-xs);
+}
+
+.button--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink-secondary);
+}
+
+.button--ghost:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.field__label {
+  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+}
+
+.field__input {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.field__input:focus {
+  border-color: var(--accent);
+}
+
+/* --- Login --------------------------------------------------------------- */
+
+.login {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-5);
+  background: var(--plane);
+}
+
+.login__panel {
+  width: min(23rem, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+}
+
+.login__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}
+
+.login__title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.login__subtitle {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+/* --- Utilities ----------------------------------------------------------- */
+
+.muted {
+  color: var(--ink-muted);
+}
+
+.small {
+  font-size: var(--text-xs);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 64rem) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .main {
+    padding: var(--space-4);
+  }
+
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .timeline__row {
+    grid-template-columns: 3.5rem minmax(0, 1fr);
+  }
+
+  /*
+   * A visit bar is 14px tall, which is right on a desktop timeline and below the 24px floor
+   * WCAG 2.2 (2.5.8) sets for a touch target. Taller on a phone only: the timeline is already
+   * a compressed view there, and a tap that misses is worse than a denser row.
+   */
+  .timeline__visit {
+    height: 24px;
+    top: 3px;
+  }
+
+  .timeline__row {
+    min-height: 34px;
+  }
+
+  .timeline__hours,
+  .timeline__legend {
+    margin-left: 3.5rem;
+  }
+}
+
+/* --- Timeline interaction ------------------------------------------------ */
+
+/* The mark is a button so it is focusable; it must not look like one. */
+button.timeline__visit {
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+/* Invisible padded hit area: the bar stays 14px tall, the target reaches ~24px. */
+.timeline__hit {
+  position: absolute;
+  inset: -6px -3px;
+}
+
+.tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 12rem;
+  padding: var(--space-2) var(--space-3);
+  background: var(--ink);
+  color: var(--surface);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  text-align: left;
+  pointer-events: none;
+  white-space: normal;
+}
+
+.tooltip__title {
+  font-weight: var(--weight-semibold);
+}
+
+.tooltip__detail {
+  opacity: 0.85;
+}
+
+/* The plan a generation run will follow. The rule is set in monospace because an RRULE is a
+   machine string a scheduler reads token by token — BYDAY=MO,WE,FR is scanned, not read as
+   prose — and proportional type makes the commas and equals signs hard to separate. */
+.plan-summary {
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
+  background: var(--surface-sunken);
+  border-left: 2px solid var(--border-accent);
+  border-radius: var(--radius-sm);
+}
+
+.plan-summary__rule {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--ink);
+  word-break: break-all;
+  margin-bottom: 2px;
+}
+
+/* ---------- User administration ------------------------------------------------------ */
+
+/* One person per row, with their actions on the same row. Grouping the actions elsewhere —
+   a selected-row toolbar, say — makes "end this person's sessions" a two-step aim, and this
+   is the screen where clicking the wrong row has the worst consequence. */
+.userrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.userrow__main {
+  min-width: 14rem;
+  flex: 1;
+}
+
+.userrow__email {
+  font-weight: var(--weight-medium);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  word-break: break-all;
+}
+
+.userrow__you {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  padding: 0 var(--space-2);
+}
+
+.userrow__warn {
+  color: var(--warning);
+  font-weight: var(--weight-semibold);
+}
+
+.userrow__revoked {
+  margin-top: var(--space-2);
+  color: var(--critical);
+}
+
+.userrow__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.userrow__form {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.field__input--compact {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  min-width: 9rem;
+}
+
+/* Destructive actions are outlined rather than filled. A solid red button competes with the
+   page's one real call to action and invites the exact misclick this screen must not make
+   easy; the colour still marks it as the one that takes something away. */
+.button--danger {
+  background: transparent;
+  color: var(--critical);
+  border: 1px solid var(--critical);
+}
+
+.button--danger:hover {
+  background: var(--critical-wash);
+}
+
+/* Labels present for screen readers and removed visually, where the adjacent button and
+   placeholder already carry the meaning for sighted users. Not `display: none`, which would
+   take them out of the accessibility tree along with the pixels. */
+.hidden-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Security / MFA enrolment ---------------------------------------------------------- */
+
+/* A secret and ten recovery codes get transcribed by hand into a phone or onto paper, so they
+   are set in a monospace face at a size that survives being read aloud. `user-select: all`
+   makes one click select the whole value: a partial selection of a shared secret produces an
+   authenticator that generates plausible codes which never match, and no error message
+   anywhere says why. */
+.mono-block {
+  font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+  font-size: var(--text-md);
+  letter-spacing: 0.04em;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  margin: 0 0 var(--space-3);
+  user-select: all;
+}
+
+.mono-block--wrap {
+  font-size: var(--text-sm);
+  letter-spacing: 0;
+  word-break: break-all;
+  user-select: all;
+}
+
+.codelist {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-4) 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: var(--space-2);
+}
+
+.codelist .mono-block {
+  margin: 0;
+  text-align: center;
+}
+
+/* --- Skip link ------------------------------------------------------------ */
+/*
+ * Off-screen until focused. Nine nav links precede the content on every screen, so without
+ * this a keyboard user pays nine tabs per navigation to reach what they came for.
+ */
+
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  background: var(--ink);
+  color: var(--surface);
+  padding: 0.7rem 1.1rem;
+  border-radius: 0 0 var(--radius-sm) 0;
+  text-decoration: none;
+}
+
+.skip:focus {
+  left: 0;
+}
+
+/*
+ * `main` is focusable only so the skip link can hand focus to it; it is never in the tab
+ * order. Ringing the whole page when that happens indicates nothing the reader does not
+ * already know, having just pressed the link that took them there.
+ */
+main:focus,
+main:focus-visible {
+  outline: none;
+}
+
+/* --- Enrolment QR --------------------------------------------------------- */
+/*
+ * White plate and a fixed size. A QR is read by contrast, so it keeps its own background
+ * regardless of theme, and the padding is the quiet zone the format requires — a code butted
+ * against a dark surface is one several phone cameras will not lock onto.
+ */
+
+.qr {
+  width: 176px;
+  margin: var(--space-4) 0;
+  padding: var(--space-2);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}

@@ -1,0 +1,409 @@
+# Unit tests for `alerts.yml`, run by `promtool test rules` in CI.
+#
+# Alerting rules are the part of an operations setup nobody exercises until an incident, when
+# both failure modes are expensive: a rule that never fires is silence you mistake for health,
+# and a rule that fires on ordinary traffic is what teaches people to ignore the pager.
+#
+# So the negative cases matter at least as much as the positive ones, and several here exist
+# because the obvious version of the rule is wrong:
+#
+# * A clock-in answering 409 or 422 is the system working correctly, not an incident.
+# * A counter that is merely non-zero is not an event; only an *increase* is.
+# * `for:` durations have to be tested at both ends, or a rule that fires instantly and one
+#   that never fires both look like a rule that works.
+
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # --- Availability -------------------------------------------------------------------------
+
+  - interval: 1m
+    name: an instance that stops answering pages, but not instantly
+    input_series:
+      - series: 'up{job="careos-api", instance="api-1:8000"}'
+        values: "1 1 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: CareOSApiDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: CareOSApiDown
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              job: careos-api
+              instance: api-1:8000
+            exp_annotations:
+              summary: "CareOS API instance api-1:8000 is not answering scrapes"
+              description: >-
+                The instance has failed scrapes for two minutes. If every instance is down,
+                caregivers cannot clock in and the on-device outbox is holding their visits —
+                those are not lost, but they age, and EVV records have submission deadlines.
+                Check the load balancer first: a single instance failing here is capacity, all
+                of them is an outage.
+
+  # --- Clock-in ----------------------------------------------------------------------------
+
+  - interval: 1m
+    name: a clock-in returning 500 pages
+    input_series:
+      - series: 'careos_http_requests_total{route="/v1/visits/{visit_id}/clock-in", method="POST", status="500"}'
+        values: "0+1x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: CareOSClockInFailing
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: "Clock-in/out is returning server errors"
+              description: >-
+                EVV clock-in is the one endpoint `05_API_Specification.md` Section 9 says must
+                never be refused, and a 5xx here becomes an unpaid visit for the caregiver and
+                a compliance exception for the agency. The device outbox will retry, so the
+                window to fix this before anything is lost is hours rather than minutes — but
+                it is the highest-priority failure in this system.
+
+  - interval: 1m
+    name: ordinary clock-in refusals do not page
+    # 409 is "you already clocked in" and 422 is a compliance gate. Both are the system working.
+    # A rule matching 4xx would page every time a caregiver double-tapped.
+    input_series:
+      - series: 'careos_http_requests_total{route="/v1/visits/{visit_id}/clock-in", method="POST", status="409"}'
+        values: "0+3x20"
+      - series: 'careos_http_requests_total{route="/v1/visits/{visit_id}/clock-in", method="POST", status="422"}'
+        values: "0+2x20"
+      - series: 'careos_http_requests_total{route="/v1/visits/{visit_id}/clock-in", method="POST", status="201"}'
+        values: "0+10x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: CareOSClockInFailing
+        exp_alerts: []
+
+  - interval: 1m
+    name: a 500 elsewhere does not raise the clock-in page
+    # Severity here is about which endpoint broke, so the route filter has to actually filter.
+    input_series:
+      - series: 'careos_http_requests_total{route="/v1/clients", method="GET", status="500"}'
+        values: "0+5x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: CareOSClockInFailing
+        exp_alerts: []
+
+  # --- Writes -------------------------------------------------------------------------------
+
+  - interval: 1m
+    name: sustained commit failures page, a single blip does not
+    input_series:
+      - series: "careos_request_commit_failures_total"
+        values: "0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1"
+    alert_rule_test:
+      # One failure then a flat counter: the rate falls back to zero and nobody is woken.
+      - eval_time: 20m
+        alertname: CareOSWritesFailing
+        exp_alerts: []
+
+  - interval: 1m
+    name: a database that keeps refusing writes pages
+    input_series:
+      - series: "careos_request_commit_failures_total"
+        values: "0+2x30"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: CareOSWritesFailing
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: CareOSWritesFailing
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: "Requests are being answered 500 because their transaction will not commit"
+              description: >-
+                The API is refusing to confirm writes it cannot make durable, which is correct
+                behaviour and means the database is in trouble — connection exhaustion, disk,
+                or a failover in progress. Nothing has been silently lost: every one of these
+                was rolled back and the client was told so.
+
+  # --- Rate limiting --------------------------------------------------------------------------
+
+  - interval: 1m
+    name: a degraded limiter tickets at ten minutes and pages at an hour
+    input_series:
+      - series: "careos_rate_limit_degraded"
+        values: "1+0x90"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: CareOSRateLimitDegraded
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: CareOSRateLimitDegraded
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: "Rate limits are being enforced per instance, not per cluster"
+              description: >-
+                The shared bucket store is unreachable, so each instance is applying the
+                published limits on its own and the cluster as a whole is enforcing roughly N
+                times them. Nothing is failing for users, which is the design — but the
+                brute-force ceiling on login is the control that just got weaker, so this does
+                not wait indefinitely. Check Redis.
+      # Still only a ticket well before the hour.
+      - eval_time: 50m
+        alertname: CareOSRateLimitDegradedProlonged
+        exp_alerts: []
+      - eval_time: 75m
+        alertname: CareOSRateLimitDegradedProlonged
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: "Rate limiting has been degraded for an hour"
+              description: >-
+                Escalated from the ticket of the same name. An hour is long enough that this is
+                not a Redis restart, and the login brute-force ceiling has been multiplied by
+                the instance count for that whole time.
+
+  - interval: 1m
+    name: a healthy limiter is silent
+    input_series:
+      - series: "careos_rate_limit_degraded"
+        values: "0+0x90"
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: CareOSRateLimitDegraded
+        exp_alerts: []
+      - eval_time: 80m
+        alertname: CareOSRateLimitDegradedProlonged
+        exp_alerts: []
+
+  - interval: 1m
+    name: sustained auth refusals raise a security ticket
+    input_series:
+      - series: 'careos_rate_limit_refusals_total{tier="auth"}'
+        values: "0+120x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: CareOSAuthBruteForce
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: "Sustained refusals on authentication endpoints"
+              description: >-
+                The limiter is doing its job — this is not an outage, it is a report that
+                someone is working through passwords or addresses. Worth a look at the source
+                addresses and at whether any account is close to being guessed. Investigate
+                before deciding whether to block upstream; a shared office NAT can produce this
+                innocently.
+
+  - interval: 1m
+    name: standard-tier refusals are not a brute-force signal
+    # An agency hitting its own API limit is a client bug or a busy morning, not an attack.
+    input_series:
+      - series: 'careos_rate_limit_refusals_total{tier="standard"}'
+        values: "0+300x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: CareOSAuthBruteForce
+        exp_alerts: []
+
+  # --- Compliance ---------------------------------------------------------------------------
+
+  - interval: 1m
+    name: an escalation raises a ticket immediately
+    input_series:
+      - series: "careos_evv_escalations_total"
+        values: "0 0 0 1 1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: CareOSEvvEscalations
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: "EVV records have exhausted their retries and need a human"
+              description: >-
+                An escalated record is an unattended compliance liability, not a queue backlog:
+                it will not be retried again and it will not transmit on its own. Work the
+                compliance-exception queue. If the count is climbing steadily, the aggregator
+                is probably rejecting a whole class of record rather than individual ones.
+
+  - interval: 1m
+    name: escalations already dealt with do not keep alerting
+    # The counter never goes down, so a rule on the value rather than the increase would fire
+    # forever after the first one — which is how an alert becomes something people mute.
+    input_series:
+      - series: "careos_evv_escalations_total"
+        values: "7+0x90"
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: CareOSEvvEscalations
+        exp_alerts: []
+
+  - interval: 1m
+    name: a misconfigured adapter tickets, because waiting cannot clear it
+    input_series:
+      - series: 'careos_evv_transmissions_total{outcome="configuration_error"}'
+        values: "0 0 1 2 3 4 5 6"
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: CareOSEvvAdapterMisconfigured
+        exp_alerts:
+          # `increase()` keeps the series labels, so the alert carries `outcome` — which is
+          # worth having on the notification, and is pinned here so it cannot vanish quietly.
+          - exp_labels:
+              severity: ticket
+              outcome: configuration_error
+            exp_annotations:
+              summary: "EVV records cannot be transmitted because of configuration, not data"
+              description: >-
+                No adapter registered for a state, or a sandbox adapter refused in production.
+                Waiting will not clear it — these records will keep failing until the
+                configuration changes, and every one of them is accruing toward an escalation.
+
+  - interval: 1m
+    name: acknowledged transmissions raise nothing
+    input_series:
+      - series: 'careos_evv_transmissions_total{outcome="acknowledged"}'
+        values: "0+50x40"
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: CareOSEvvRejectionsSustained
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: CareOSEvvAdapterMisconfigured
+        exp_alerts: []
+
+  - interval: 1m
+    name: anomalous EVV volume tickets
+    input_series:
+      - series: "careos_evv_anomalous_volume_total"
+        values: "0 0 1 2 3 4 5 6"
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: CareOSAnomalousEvvVolume
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: "A caregiver is producing clock-in volume no human working could produce"
+              description: >-
+                Section 9 asks for abuse detection in place of throttling on this endpoint, so
+                nothing was refused and nothing will be — this counter is the entire response.
+                Check the caregiver's recent EVV records for duplicates or a stuck client
+                retrying.
+
+  # --- Background workers ---------------------------------------------------------------------
+
+  - interval: 1m
+    name: a worker process that stops answering scrapes pages, but not instantly
+    input_series:
+      - series: 'up{job="careos-worker", instance="worker-1:9101"}'
+        values: "1 1 0 0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: CareOSWorkerDown
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: CareOSWorkerDown
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              job: careos-worker
+              instance: worker-1:9101
+            exp_annotations:
+              summary: "No background worker is answering scrapes"
+              description: >-
+                EVV transmission, webhook delivery, and credential-expiry notices all run in
+                this process. While it is down nothing is lost — the queues are Postgres tables
+                and drain when it returns — but EVV records age against submission deadlines and
+                webhook subscribers receive nothing. Check that the container is running before
+                looking at anything else.
+
+  - interval: 1m
+    name: a worker that is up but no longer completing EVV passes
+    # The case `up == 0` cannot see, and the reason both rules exist. The process answers every
+    # scrape while its pass is wedged — on a lock, a hung connection, or an exception loop — so
+    # availability looks perfect and no EVV record moves.
+    input_series:
+      # Frozen at t=0 while wall-clock time advances.
+      - series: 'careos_worker_last_run_timestamp_seconds{job="evv_transmission"}'
+        values: "0+0x40"
+    alert_rule_test:
+      # `time()` in a unit test starts at the Unix epoch, so at 10m the gap is 600s — inside
+      # the fifteen-minute threshold.
+      - eval_time: 10m
+        alertname: CareOSEvvTransmissionStalled
+        exp_alerts: []
+      # Past the threshold, and past the `for:` on top of it.
+      - eval_time: 25m
+        alertname: CareOSEvvTransmissionStalled
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: "EVV transmission has not completed a pass in fifteen minutes"
+              description: >-
+                The worker is answering scrapes but its EVV pass is not finishing. Fifteen
+                minutes is thirty missed cycles at the default interval. Look for a job timing
+                out against one agency's aggregator, or a pass that overran —
+                `worker.tick_overran` in the logs names the job and the agency count.
+
+  - interval: 1m
+    name: a worker completing passes normally is silent
+    input_series:
+      # Advancing one second per second: a healthy loop.
+      - series: 'careos_worker_last_run_timestamp_seconds{job="evv_transmission"}'
+        values: "0+60x40"
+      - series: 'careos_worker_last_run_timestamp_seconds{job="webhook_delivery"}'
+        values: "0+60x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: CareOSEvvTransmissionStalled
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: CareOSWebhookDeliveryStalled
+        exp_alerts: []
+
+  - interval: 1m
+    name: agencies skipped because another replica holds the lock are not a failure
+    # The negative case that keeps this rule usable. `skipped_locked` is the *normal* outcome
+    # for most agencies on most ticks as soon as there are two workers, and a rule that counted
+    # it would page on a healthy horizontally-scaled deployment.
+    input_series:
+      - series: 'careos_worker_job_runs_total{job="webhook_delivery", outcome="skipped_locked"}'
+        values: "0+50x40"
+      - series: 'careos_worker_job_runs_total{job="webhook_delivery", outcome="ok"}'
+        values: "0+10x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: CareOSWorkerJobsFailing
+        exp_alerts: []
+
+  - interval: 1m
+    name: a job erroring for one agency every pass raises a ticket
+    input_series:
+      - series: 'careos_worker_job_runs_total{job="evv_transmission", outcome="error"}'
+        values: "0+2x40"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: CareOSWorkerJobsFailing
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: CareOSWorkerJobsFailing
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job: evv_transmission
+            exp_annotations:
+              summary: "Background job evv_transmission is failing for at least one agency"
+              description: >-
+                One agency's job is raising every pass. The loop is deliberately built so this
+                does not stop other tenants — which is also why it can continue unnoticed. The
+                log line `worker.job_failed` carries the agency and the traceback.
