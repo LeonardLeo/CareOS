@@ -415,6 +415,12 @@ jobs:
         # `output: "export"` fails loudly on a server-only feature, but a page that quietly
         # stops being exportable would only be discovered at deploy. This asserts the artefact.
         run: test -f out/index.html
+      - name: The domain and the card have not drifted
+        # security.txt is static and cannot import SITE_DOMAIN; the OG card is rendered by
+        # Satori, which resolves no custom properties. Both repeat a value, so both are checked.
+        run: |
+          node scripts/check-domain.mjs
+          node scripts/check-og.mjs
       - name: Every page is linked, every link is a page
         # Cheap, and it catches the two silent drifts: a published page nothing links to, and a
         # navigation entry pointing at a route that was never built.

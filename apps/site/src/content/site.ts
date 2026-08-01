@@ -7,12 +7,23 @@
  */
 
 export const SITE_NAME = "CareOS";
-/** The canonical origin. One constant, so the sitemap and the metadata base cannot diverge. */
-export const SITE_ORIGIN = "https://careos.example";
-export const SIGN_IN_URL = "https://app.careos.example/login";
-export const CONTACT_EMAIL = "hello@careos.example";
-export const SECURITY_EMAIL = "security@careos.example";
-export const PRIVACY_EMAIL = "privacy@careos.example";
+
+/**
+ * The one place the domain is written down.
+ *
+ * `careos.example` is a placeholder — `.example` is reserved by RFC 2606 precisely so it can
+ * never resolve, which means a stray link to it fails visibly rather than reaching somebody
+ * else's server. Adopting a real domain is this line and the four literals in
+ * `public/.well-known/security.txt`, which is a static file and cannot import anything;
+ * `scripts/check-domain.mjs` fails the build if the two disagree.
+ */
+export const SITE_DOMAIN = "careos.example";
+
+export const SITE_ORIGIN = `https://${SITE_DOMAIN}`;
+export const SIGN_IN_URL = `https://app.${SITE_DOMAIN}/login`;
+export const CONTACT_EMAIL = `hello@${SITE_DOMAIN}`;
+export const SECURITY_EMAIL = `security@${SITE_DOMAIN}`;
+export const PRIVACY_EMAIL = `privacy@${SITE_DOMAIN}`;
 
 export const partnerMailto = (subject = "CareOS design partner") =>
   `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}`;
