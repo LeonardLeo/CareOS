@@ -30,7 +30,10 @@
   --paper-sunken: #f1eee7;
   --ink: #16130f;
   --ink-2: #4a443c;
-  --ink-3: #7c746a;
+  /* Muted text. Darker than it looks like it wants to be: at #7c746a it measured 3.97:1 on
+   * the sunken ground, which fails AA for the eyebrows, figure sources, and field hints that
+   * use it. Muted has to mean quiet, not unreadable. */
+  --ink-3: #6f675c;
   --rule: #e2dcd2;
   --rule-strong: #cec6b9;
 
@@ -150,6 +153,16 @@ a {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
   border-radius: 2px;
+}
+
+/*
+ * `main` is focusable only so the skip link can hand focus to it; it is never in the tab
+ * order. Ringing the entire page when that happens indicates nothing useful — the reader
+ * already knows where they went, because they pressed the link that took them there.
+ */
+main:focus,
+main:focus-visible {
+  outline: none;
 }
 
 ::selection {
@@ -289,8 +302,13 @@ code {
   color: color-mix(in srgb, var(--paper) 72%, transparent);
 }
 
+/*
+ * 68% rather than the 55% this wanted to be. The mix is symmetrical but contrast is not: the
+ * same fraction of light-on-ink measures 8.2:1 while ink-on-light measures 4.0:1, so the value
+ * that looked right in light mode failed AA in dark. Set from the worse of the two.
+ */
 .section--ink .eyebrow {
-  color: color-mix(in srgb, var(--paper) 55%, transparent);
+  color: color-mix(in srgb, var(--paper) 68%, transparent);
 }
 
 .rule {

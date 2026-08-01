@@ -16,24 +16,17 @@
  * Not wired into CI, which has no browser. Run it before shipping a change to the site.
  */
 
-import { chromium, devices } from "playwright";
+import { launch, devices } from "./browser.mjs";
+import { sitePages } from "./pages.mjs";
 
 const OUT = process.env.SHOT_DIR ?? "/tmp/careos-site-shots";
 const BASE = "http://localhost:3002";
-const PAGES = [
-  "/",
-  "/product/",
-  "/security/",
-  "/about/",
-  "/careers/",
-  "/contact/",
-  "/legal/privacy/",
-  "/legal/terms/",
-  "/legal/subprocessors/",
-  "/nope/",
-];
+// From the sitemap, so a page added to the site is audited without anyone remembering to add
+// it here. `/nope/` is appended deliberately: the 404 is a page too, and it is the one most
+// likely to be shipped broken because nobody visits it on purpose.
+const PAGES = [...sitePages(), "/nope/"];
 
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+const b = await launch();
 
 for (const width of [1440, 390]) {
   const ctx = await b.newContext(
@@ -43,9 +36,18 @@ for (const width of [1440, 390]) {
   );
   const page = await ctx.newPage();
   const problems = [];
-  page.on("console", (m) => { if (m.type() === "error") problems.push(`console: ${m.text()}`); });
+  page.on("console", (m) => {
+    // Same reason as the response filter below: the browser logs the deliberate 404 as an
+    // error, and it is attributed to that URL, so it can be dropped precisely.
+    if (m.type() !== "error" || m.location().url.endsWith("/nope/")) return;
+    problems.push(`console: ${m.text()}`);
+  });
   page.on("requestfailed", (r) => problems.push(`request failed: ${r.url()}`));
-  page.on("response", (r) => { if (r.status() >= 400) problems.push(`${r.status()} ${r.url()}`); });
+  // `/nope/` is supposed to 404 — that is what it is for. Reporting it as a problem trains you
+  // to ignore the PROBLEMS line, which is where a real missing font would appear.
+  page.on("response", (r) => {
+    if (r.status() >= 400 && !r.url().endsWith("/nope/")) problems.push(`${r.status()} ${r.url()}`);
+  });
 
   for (const path of PAGES) {
     await page.goto(BASE + path, { waitUntil: "networkidle" });

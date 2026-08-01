@@ -1,6 +1,13 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import { NAV } from "@/content/site";
+
+export const metadata: Metadata = {
+  title: "Page not found",
+  // A 404 that a search engine keeps in its index sends the next person to the same dead end.
+  robots: { index: false, follow: true },
+};
 
 /**
  * 404.
@@ -28,6 +35,11 @@ export default function NotFound() {
               <Link href={item.href}>{item.label}</Link>
             </li>
           ))}
+          {/* The policies are the likeliest thing to be reached by a stale link, since they are
+              what gets pasted into a compliance review and read months later. */}
+          <li>
+            <Link href="/legal/">Policies</Link>
+          </li>
         </ul>
       </div>
     </section>

@@ -343,9 +343,10 @@ by importing the model registry, pinned by a subprocess test.
 
 ### Public site
 
-`apps/site` — nine pages as a static Next.js export, its own app rather than a route in the
-admin console: home, product, security, about, careers, contact, and privacy / terms /
-subprocessors.
+`apps/site` — fifteen pages as a static Next.js export, its own app rather than a route in the
+admin console: home, product, security, about, careers, contact, a policy index, and eight
+policies — privacy, terms, cookies, HIPAA, acceptable use, availability, subprocessors,
+accessibility.
 No session, no API call, nothing personalised, so it needs no server: it is a directory of
 files that stays up when the API does not, which matters because a marketing page that goes
 down with the product cannot tell anyone the product is down. No font CDN, no icon library,
@@ -362,12 +363,39 @@ no analytics, no third-party request of any kind. The one illustration is the pr
 coverage board with the unfilled shifts in red, which is the same argument the console makes
 to a scheduler.
 
-`apps/site/scripts/audit.mjs` drives every page in a real browser at two widths and reports
-horizontal overflow, failed requests, and elements left in the pre-reveal hidden state. The
-last of those is the one that matters: a stuck element is invisible, not merely un-animated.
-Two defects came out of running it — display headings rendering near-white on near-white cards
-inside the inverted section, and a harness that reported the whole document unrevealed because
-`scroll-behavior: smooth` meant a scripted scroll loop moved the page 231px out of 4612.
+The policy set is written to be read rather than to be scrolled past, and each page states
+what is *not* done: no counsel review, no incident-response plan, no penetration test, no
+signed subprocessor agreements, no service level agreement — because the pager receivers are
+still placeholders and an availability guarantee you cannot detect yourself breaking is not a
+guarantee. The cookie page says the site sets nothing, which was checked in a browser (no
+cookies, no storage, one host) rather than assumed.
+
+Three scripts check the site, all reading their page list from the built `sitemap.xml`, which
+is itself generated from the same content module the header, footer, and policy index render —
+so a page cannot be added and audited by nothing.
+
+`scripts/check-routes.mjs` asserts the export and the sitemap describe the same pages. Both
+drifts it catches are silent: a published page nothing links to, and a navigation entry
+pointing at a route that was never built.
+
+`scripts/audit.mjs` drives every page in a real browser at two widths and reports horizontal
+overflow, failed requests, and elements left in the pre-reveal hidden state. The last is the
+one that matters: a stuck element is invisible, not merely un-animated. Two defects came out
+of running it — display headings rendering near-white on near-white cards inside the inverted
+section, and a harness that reported the whole document unrevealed because `scroll-behavior:
+smooth` meant a scripted scroll loop moved the page 231px out of 4612.
+
+`scripts/a11y.mjs` runs in CI and fails the build: contrast on every rendered text node
+against the background actually behind it, real Tab-key traversal of the skip link, accessible
+names, form labels, heading order, landmarks, `lang`, and `alt`. It found four things a green
+test suite did not. Muted text at `#7c746a` measured 3.97:1 — every eyebrow, figure source,
+and field hint on the site failed AA. The skip link scrolled but never moved focus, because
+`main` had no `tabindex="-1"`, so the next Tab went back into the nav. A section eyebrow that
+passed at 8.2:1 in light mode measured 4.0:1 in dark, since the same colour mix is symmetrical
+and contrast is not — which is why dark is a full pass rather than a spot check. And the
+harness's own colour parser read `color(srgb 0.97 0.96 0.94)` on a 0-255 scale, reporting
+near-white as near-black; it accused the site header of 1.18:1 before it accused itself. Each
+check was then mutation-tested by breaking the page and confirming it failed.
 
 ### EVV reconciliation and conformance
 

@@ -409,6 +409,22 @@ jobs:
         # `output: "export"` fails loudly on a server-only feature, but a page that quietly
         # stops being exportable would only be discovered at deploy. This asserts the artefact.
         run: test -f out/index.html
+      - name: Every page is linked, every link is a page
+        # Cheap, and it catches the two silent drifts: a published page nothing links to, and a
+        # navigation entry pointing at a route that was never built.
+        run: node scripts/check-routes.mjs
+      - name: Accessibility
+        # `/legal/accessibility/` claims these checks run on every change and fail the build.
+        # This is the step that makes that claim true. `http.server` rather than a package from
+        # the registry: it maps a directory to its index.html, which is all a static export is.
+        run: |
+          npx playwright install --with-deps chromium
+          python3 -m http.server 3002 --directory out --bind 127.0.0.1 &
+          for i in $(seq 1 20); do
+            curl -fsS http://127.0.0.1:3002/ > /dev/null && break
+            sleep 1
+          done
+          node scripts/a11y.mjs http://127.0.0.1:3002
 
   caregiver-app:
     name: Caregiver app (offline EVV)

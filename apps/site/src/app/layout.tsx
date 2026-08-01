@@ -9,9 +9,10 @@ import "@/styles/site.css";
 
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
+import { SITE_ORIGIN } from "@/content/site";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://careos.example"),
+  metadataBase: new URL(SITE_ORIGIN),
   title: {
     default: "CareOS — the operating system for home-based care",
     // Every interior page gets the product name without repeating it in each file.
@@ -37,7 +38,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Skip to content
         </a>
         <SiteHeader />
-        <main id="main">{children}</main>
+        {/* `tabIndex={-1}` is what makes the skip link work. Without it the browser scrolls to
+            the fragment but leaves focus on the link, so the next Tab goes back into the nav
+            and the reader never escapes it. */}
+        <main id="main" tabIndex={-1}>
+          {children}
+        </main>
         <SiteFooter />
       </body>
     </html>
