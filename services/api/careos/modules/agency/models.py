@@ -144,8 +144,15 @@ class AppUser(Base, PrimaryKeyMixin, TimestampMixin):
 
 
 #: Roles for which MFA is mandatory, not advisory.
+#:
+#: `08_Security_Architecture.md` Section 1 names the first three and asks for schedulers next.
+#: They are included now: a scheduler sees every client's address and every caregiver's
+#: assignment, which is the same protected health information the other three see, and the
+#: role is the one an agency hands out most freely. `caregiver` stays out — the caregiver app
+#: has no field to type a code into, so requiring one would lock a caregiver out of the phone
+#: they clock in with, at a client's door, with no way to fix it themselves.
 MFA_REQUIRED_ROLES: frozenset[Role] = frozenset(
-    {Role.owner_admin, Role.clinical_supervisor, Role.billing_rcm}
+    {Role.owner_admin, Role.clinical_supervisor, Role.billing_rcm, Role.scheduler}
 )
 
 #: Roles that may enrol an authenticator at all.

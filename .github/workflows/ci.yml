@@ -384,6 +384,12 @@ jobs:
       - name: Untranslated strings
         working-directory: apps/admin-web
         run: npm run i18n:check
+      # A QR code is the one thing on the enrolment screen nobody can proofread. It either
+      # scans or it does not, and a code that renders beautifully and decodes to nothing looks
+      # identical to a working one until somebody is standing there with a phone.
+      - name: The enrolment QR decodes to the URI it encodes
+        working-directory: apps/admin-web
+        run: npm run check:qr
       - name: Build
         working-directory: apps/admin-web
         run: npm run build

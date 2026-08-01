@@ -27,7 +27,12 @@ import pytest
 from careos.config import get_settings
 from careos.core import mfa
 from careos.db.session import tenant_session
-from careos.modules.agency.models import AppUser, Role
+from careos.modules.agency.models import (
+    MFA_ELIGIBLE_ROLES,
+    MFA_REQUIRED_ROLES,
+    AppUser,
+    Role,
+)
 from careos.modules.audit.models import AuditLog
 from tests.conftest import TenantFixture
 
@@ -392,19 +397,36 @@ async def test_an_unenrolled_privileged_user_can_only_reach_enrolment(
     assert allowed.status_code == 200
 
 
-async def test_a_role_without_the_requirement_is_unaffected(
+async def test_a_scheduler_is_now_held_to_the_requirement(
     client, tenant_a: TenantFixture, mfa_enforced: None
 ) -> None:
-    """Section 1 names three roles. A scheduler is not one of them — yet.
+    """Section 1 asked for schedulers next, and they are now in.
 
-    The same section says MFA "should become required" for schedulers, which is a change to
-    `MFA_REQUIRED_ROLES` and nothing else.
+    A scheduler sees every client's address and every caregiver's assignment — the same
+    protected health information the other three roles see — and it is the role an agency
+    hands out most freely.
     """
     _user_id, email = await _invite(client, tenant_a, "scheduler")
     signed_in = await client.post("/v1/auth/login", json={"email": email, "password": PASSWORD})
     headers = {"Authorization": f"Bearer {signed_in.json()['access_token']}"}
 
-    assert (await client.get("/v1/clients", headers=headers)).status_code == 200
+    assert (await client.get("/v1/clients", headers=headers)).status_code == 403
+    # And the way out is open, which is the half that matters: a requirement with no reachable
+    # enrolment route is a locked door.
+    assert (await client.post("/v1/auth/mfa/enroll", headers=headers)).status_code == 200
+
+
+async def test_a_caregiver_is_still_not_held_to_it(
+    client, tenant_a: TenantFixture, mfa_enforced: None
+) -> None:
+    """The one role deliberately left out, and the reason is not that it matters less.
+
+    The caregiver app has no field to type a code into. A caregiver required to produce one
+    would discover it at a client's door, on the phone they clock in with, with no way to fix
+    it themselves — so this stays out until that app can ask.
+    """
+    assert Role.caregiver not in MFA_REQUIRED_ROLES
+    assert Role.caregiver not in MFA_ELIGIBLE_ROLES
 
 
 async def test_enrolling_then_signing_in_again_gives_a_full_session(

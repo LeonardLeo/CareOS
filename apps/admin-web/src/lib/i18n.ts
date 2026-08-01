@@ -72,7 +72,7 @@ const EN = {
     signInDisabled: "This account has been disabled. Contact your agency administrator.",
     signInUnavailable: "Could not sign in. Please try again.",
     mfaNotice:
-      "Multi-factor authentication is required for owner, clinical supervisor and billing roles before production use.",
+      "Multi-factor authentication is required for owner, scheduler, clinical supervisor and billing roles before production use.",
 
     // --- Dashboard
     dashboardTitle: "Dashboard",
@@ -408,7 +408,7 @@ const EN = {
     navSecurity: "Security",
     securityTitle: "Security",
     securitySubtitle:
-      "Multi-factor authentication for this account. Owner/Admin, Clinical Supervisor and Billing/RCM are required to use it.",
+      "Multi-factor authentication for this account. Owner/Admin, Scheduler, Clinical Supervisor and Billing/RCM are required to use it.",
     mfaRequiredBadge: "Required",
     mfaRequiredNote:
       "Your role requires multi-factor authentication. Set it up here to use the rest of CareOS.",
@@ -424,7 +424,8 @@ const EN = {
       "Pairing a new device replaces the one you have now, along with your recovery codes. Enter a code from your current authenticator — or one of your recovery codes — to confirm it is you.",
     mfaCurrentCodeLabel: "Code from your current authenticator",
     mfaScanExplainer:
-      "Add this secret to your authenticator app, then enter the six-digit code it shows.",
+      "Scan this code with your authenticator app — or add the secret below by hand — then enter the six-digit code it shows.",
+    mfaQrLabel: "QR code for enrolling an authenticator app",
     mfaSecretLabel: "Secret",
     mfaUriLabel: "Setup link (for password managers)",
     mfaCodeLabel: "Six-digit code",
@@ -528,7 +529,7 @@ const ES: Record<StringKey, string> = {
       "Esta cuenta ha sido desactivada. Comuníquese con el administrador de su agencia.",
     signInUnavailable: "No se pudo iniciar sesión. Inténtelo de nuevo.",
     mfaNotice:
-      "La autenticación de múltiples factores es obligatoria para las funciones de propietario, supervisor clínico y facturación antes del uso en producción.",
+      "La autenticación de múltiples factores es obligatoria para las funciones de propietario, coordinador, supervisor clínico y facturación antes del uso en producción.",
 
     dashboardTitle: "Panel",
     coverageTitle: "Cobertura",
@@ -857,7 +858,7 @@ const ES: Record<StringKey, string> = {
     navSecurity: "Seguridad",
     securityTitle: "Seguridad",
     securitySubtitle:
-      "Autenticación de múltiples factores para esta cuenta. Es obligatoria para propietario/administrador, supervisor clínico y facturación.",
+      "Autenticación de múltiples factores para esta cuenta. Es obligatoria para propietario/administrador, coordinador, supervisor clínico y facturación.",
     mfaRequiredBadge: "Obligatoria",
     mfaRequiredNote:
       "Su función requiere autenticación de múltiples factores. Configúrela aquí para usar el resto de CareOS.",
@@ -873,7 +874,8 @@ const ES: Record<StringKey, string> = {
       "Vincular un dispositivo nuevo reemplaza el actual y sus códigos de recuperación. Escriba un código de su aplicación actual — o uno de sus códigos de recuperación — para confirmar que es usted.",
     mfaCurrentCodeLabel: "Código de su aplicación actual",
     mfaScanExplainer:
-      "Agregue esta clave a su aplicación de autenticación y luego escriba el código de seis dígitos que muestra.",
+      "Escanee este código con su aplicación de autenticación —o agregue la clave manualmente— y luego escriba el código de seis dígitos que muestra.",
+    mfaQrLabel: "Código QR para inscribir una aplicación de autenticación",
     mfaSecretLabel: "Clave",
     mfaUriLabel: "Enlace de configuración (para gestores de contraseñas)",
     mfaCodeLabel: "Código de seis dígitos",

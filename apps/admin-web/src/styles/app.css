@@ -1344,3 +1344,25 @@ main:focus,
 main:focus-visible {
   outline: none;
 }
+
+/* --- Enrolment QR --------------------------------------------------------- */
+/*
+ * White plate and a fixed size. A QR is read by contrast, so it keeps its own background
+ * regardless of theme, and the padding is the quiet zone the format requires — a code butted
+ * against a dark surface is one several phone cameras will not lock onto.
+ */
+
+.qr {
+  width: 176px;
+  margin: var(--space-4) 0;
+  padding: var(--space-2);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}

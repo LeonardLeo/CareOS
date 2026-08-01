@@ -13,10 +13,11 @@
  * silently invalidated the secret the user had already scanned, turning one typo into an
  * authenticator that could never produce an accepted code. See `lib/mfa-enrolment.ts`.
  *
- * **The secret is shown as text, not only as a QR code.** There is no QR here at all: rendering
- * one needs an encoder this app does not have, and manual entry works in every authenticator.
- * The `otpauth://` URI is shown too, since a desktop password manager takes it directly. A QR
- * is a genuine usability improvement and is noted in BUILD_STATUS rather than pretended away.
+ * **The QR code is offered first, and the secret is still shown as text.** Typing a 32-character
+ * secret into a phone is where people give up, so the code goes first. The text stays because a
+ * QR is no use to someone enrolling a desktop password manager, reading the screen with a
+ * magnifier, or working on the same phone that is displaying the page — and the `otpauth://`
+ * URI stays with it, since a password manager takes that directly.
  *
  * **The recovery codes are on the same screen as the secret, before confirmation.** They are
  * returned once and never again — so a screen that showed them after the confirm step would
@@ -25,6 +26,7 @@
  */
 
 import { redirect } from "next/navigation";
+import { EnrolmentQr } from "@/components/qr";
 import { Card, ErrorNote, SeverityBadge } from "@/components/ui";
 import { translatorFor } from "@/lib/i18n";
 import { getLocale } from "@/lib/locale";
@@ -110,6 +112,7 @@ export default async function SecurityPage({
           ) : (
             <>
               <p className="small muted">{t("mfaScanExplainer")}</p>
+              <EnrolmentQr uri={enrolment.otpauthUri} label={t("mfaQrLabel")} />
               <p className="field__label" style={{ marginTop: "var(--space-4)" }}>
                 {t("mfaSecretLabel")}
               </p>
