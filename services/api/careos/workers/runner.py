@@ -47,6 +47,7 @@ from careos.modules.agency.models import Agency
 from careos.workers import (
     credential_expiry,
     evv_transmission,
+    reconciliation,
     screening,
     webhook_delivery,
 )
@@ -179,7 +180,7 @@ async def run_tick(jobs: list[Job], *, stop: asyncio.Event | None = None) -> Tic
 
 
 def default_jobs() -> list[Job]:
-    """The five jobs, with the cadence each one's failure mode argues for.
+    """The six jobs, with the cadence each one's failure mode argues for.
 
     EVV transmission is the tightest: `06_Compliance_and_Regulatory_Requirements.md` treats
     late transmission as a compliance problem, and the adapter has its own backoff, so polling
@@ -226,6 +227,11 @@ def default_jobs() -> list[Job]:
             name="screening_rescreen",
             interval_seconds=settings.worker_screening_rescreen_interval_seconds,
             run=screening.order_screening_rescreens,
+        ),
+        Job(
+            name="evv_reconciliation",
+            interval_seconds=settings.worker_reconciliation_interval_seconds,
+            run=reconciliation.reconcile_agency,
         ),
     ]
 

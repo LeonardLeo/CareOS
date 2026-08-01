@@ -172,6 +172,7 @@ async def test_the_default_jobs_are_the_ones_that_exist() -> None:
         "credential_expiry",
         "screening_poll",
         "screening_rescreen",
+        "evv_reconciliation",
     }
     assert all(job.interval_seconds > 0 for job in runner.default_jobs())
 

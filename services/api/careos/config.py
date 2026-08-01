@@ -87,6 +87,10 @@ class Settings(BaseSettings):
     worker_screening_poll_interval_seconds: float = 300.0
     #: Ordering re-screens is a calendar job like the credential announcer. Daily.
     worker_screening_rescreen_interval_seconds: float = 86_400.0
+    #: EVV reconciliation. Daily, because every divergence it reports is defined by something
+    #: not having happened for at least `DEFAULT_GRACE`, so a tighter schedule would re-derive
+    #: the same answer without any of it being newer.
+    worker_reconciliation_interval_seconds: float = 86_400.0
     #: Port for the worker's own metrics endpoint. 0 disables it.
     worker_metrics_port: int = 9101
     #: Bind address for that endpoint. A collector in another container needs 0.0.0.0; a

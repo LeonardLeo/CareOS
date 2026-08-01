@@ -343,16 +343,56 @@ by importing the model registry, pinned by a subprocess test.
 
 ### Public site
 
-`apps/site` — a static Next.js export, its own app rather than a route in the admin console.
+`apps/site` — nine pages as a static Next.js export, its own app rather than a route in the
+admin console: home, product, security, about, careers, contact, and privacy / terms /
+subprocessors.
 No session, no API call, nothing personalised, so it needs no server: it is a directory of
 files that stays up when the API does not, which matters because a marketing page that goes
 down with the product cannot tell anyone the product is down. No font CDN, no icon library,
 no analytics — a page with no third-party requests loads on a bad connection and leaks
 nothing about who visited.
 
-Every figure on it carries its source in the markup, and it claims nothing about customers or
-results, because there are none. The one illustration is the product's own coverage board with
-the unfilled shifts in red, which is the same argument the console makes to a scheduler.
+Every figure carries its source in the markup, and it claims nothing about customers or
+results, because there are none. The product page has a "what is not built" section and the
+security page an "open items" one, for the same reason: a capability list with no edges is one
+a buyer assumes is padded.
+
+Typography is Fraunces and Inter, self-hosted as npm packages — no font CDN, no icon library,
+no analytics, no third-party request of any kind. The one illustration is the product's own
+coverage board with the unfilled shifts in red, which is the same argument the console makes
+to a scheduler.
+
+`apps/site/scripts/audit.mjs` drives every page in a real browser at two widths and reports
+horizontal overflow, failed requests, and elements left in the pre-reveal hidden state. The
+last of those is the one that matters: a stuck element is invisible, not merely un-animated.
+Two defects came out of running it — display headings rendering near-white on near-white cards
+inside the inverted section, and a harness that reported the whole document unrevealed because
+`scroll-behavior: smooth` meant a scripted scroll loop moved the page 231px out of 4612.
+
+### EVV reconciliation and conformance
+
+Two controls from `13_Phase_1_Launch_Plan.md` 5.1, both buildable before a vendor sandbox.
+
+**Reconciliation** (`compliance_rules/reconciliation.py`, daily worker job) compares delivered
+visits against their EVV records. The four divergences it reports are all states the rest of
+the system calls healthy: a delivered visit with no record at all — which has nothing to retry
+and is invisible to every alert, since they are keyed on a record — one submitted and never
+acknowledged, one queued and never sent, and a rejection nobody resolved. Exceptions close
+themselves when the divergence resolves, because a queue full of already-fixed problems is one
+that stops being read.
+
+**Conformance fixtures** (`integrations/evv/conformance.py`, `tests/fixtures/`) pin the exact
+bytes each adapter puts on the wire for four shaped records: a normal visit, a telephony
+capture with no coordinates, a manual exception, and a visit crossing midnight. A state's field
+map is a dict of a dozen strings, and renaming one is a two-character edit nothing else would
+catch. The remaining two records the plan asks for — a cancellation and a correction — are
+recorded as *not expressible*: both are separate message types and the adapter interface has
+only `submit`. Guessing at each vendor's vocabulary would produce fixtures that look like
+coverage and pin nothing.
+
+The response half of the fixture is empty, and a test asserts it stays that way until a real
+sandbox run. A recorded acknowledgement nobody received would make the suite assert that our
+own guess is stable.
 
 ### Schema
 
