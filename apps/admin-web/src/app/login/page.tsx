@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ErrorNote } from "@/components/ui";
@@ -28,18 +29,26 @@ export default async function LoginPage({
           </div>
         </div>
 
-        {error && (
-          <ErrorNote
-            title={t(
-              error === "disabled"
-                ? "signInDisabled"
-                : error === "mfa"
-                  ? "signInCodePrompt"
-                  : error === "invalid"
-                    ? "signInFailed"
-                    : "signInUnavailable",
-            )}
-          />
+        {error === "suspended" ? (
+          // Its own branch rather than another entry in the ladder below, because it is the
+          // one failure that is not about this person's credentials at all. Telling an owner
+          // their account was disabled would send them to a user list to look for a change
+          // nobody in their agency made.
+          <ErrorNote title={t("agencySuspendedTitle")} detail={t("agencySuspendedBody")} />
+        ) : (
+          error && (
+            <ErrorNote
+              title={t(
+                error === "disabled"
+                  ? "signInDisabled"
+                  : error === "mfa"
+                    ? "signInCodePrompt"
+                    : error === "invalid"
+                      ? "signInFailed"
+                      : "signInUnavailable",
+              )}
+            />
+          )
         )}
 
         {/*
@@ -76,9 +85,9 @@ export default async function LoginPage({
           </div>
 
           {/* Rendered only once the API has said a code is needed. Showing it to everyone
-              would ask the majority of users — caregivers, schedulers — for something they do
-              not have, and an empty optional field on a sign-in screen invites a support call
-              from every one of them. The cost is one extra round trip for enrolled users. */}
+              would ask caregivers — and anyone not yet enrolled — for something they do not
+              have, and an empty optional field on a sign-in screen invites a support call from
+              every one of them. The cost is one extra round trip for enrolled users. */}
           {error === "mfa" && (
             <div className="field">
               <label className="field__label" htmlFor="mfa_code">
@@ -101,7 +110,11 @@ export default async function LoginPage({
           </button>
         </form>
 
-        <p className="small muted" style={{ marginTop: "var(--space-5)" }}>
+        <p className="small" style={{ marginTop: "var(--space-5)" }}>
+          {t("signUpNudge")} <Link href="/signup">{t("signUp")}</Link>
+        </p>
+
+        <p className="small muted" style={{ marginTop: "var(--space-3)" }}>
           {t("mfaNotice")}
         </p>
 

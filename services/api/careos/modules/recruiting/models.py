@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, Text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -41,6 +41,15 @@ class JobPosting(Base, PrimaryKeyMixin, TenantMixin, TimestampMixin):
 
 class ApplicantProfile(Base, PrimaryKeyMixin, TenantMixin, TimestampMixin):
     __tablename__ = "applicant_profile"
+    __table_args__ = (
+        # Mirrors migration 0002. Declared on the model as well so `alembic check` sees the
+        # schema the database actually has — a constraint present only in a migration reads
+        # to autogenerate as one the models want removed.
+        CheckConstraint(
+            "ranking_score IS NULL OR jsonb_array_length(ranking_factors) > 0",
+            name="ck_applicant_ranking_score_requires_factors",
+        ),
+    )
 
     job_posting_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("job_posting.id", ondelete="SET NULL"), nullable=True

@@ -44,6 +44,18 @@ export class ApiError extends Error {
     return this.code === "ACCOUNT_INACTIVE";
   }
 
+  /**
+   * The credentials are fine and CareOS has suspended the whole tenant.
+   *
+   * Distinct from `isAccountInactive`, which is one person disabled by their own
+   * administrator. This one is nobody in the agency, done from outside it, and the two need
+   * different messages: an owner told their account was disabled goes looking for a change
+   * nobody in the agency made.
+   */
+  get isAgencySuspended(): boolean {
+    return this.code === "AGENCY_SUSPENDED";
+  }
+
   /** Right password, and the account has a second factor the request did not carry. */
   get isMfaRequired(): boolean {
     return this.code === "MFA_REQUIRED";
@@ -122,6 +134,92 @@ export interface Agency {
   service_lines: string[];
   accepted_payer_types: string[];
   created_at: string;
+  /** `active` or `suspended`. A suspension is set by CareOS, never from inside the agency. */
+  status: string;
+}
+
+/* --- Platform console -------------------------------------------------------------- */
+
+export interface PlatformOperator {
+  id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  status: string;
+  mfa_enrolled: boolean;
+  created_at: string;
+  last_login_at: string | null;
+  sessions_revoked_at: string | null;
+  disabled_reason: string | null;
+}
+
+/**
+ * One agency as a CareOS operator sees it.
+ *
+ * Every field is a status, a count, or a timestamp. There is deliberately no client,
+ * caregiver, or user named here — and that is enforced two layers down, by the database role
+ * behind these endpoints holding no permission on the tables those live in.
+ */
+export interface AgencyHealth {
+  agency_id: string;
+  legal_name: string;
+  status: string;
+  suspended_at: string | null;
+  suspended_reason: string | null;
+  service_states: string[];
+  service_lines: string[];
+  created_at: string;
+
+  users_total: number;
+  users_active: number;
+  owner_admins_active: number;
+  users_missing_mfa: number;
+  caregivers_active: number;
+  clients_active: number;
+
+  visits_next_7d: number;
+  visits_unfilled_next_7d: number;
+
+  evv_pending: number;
+  evv_transmitted: number;
+  evv_acknowledged: number;
+  evv_rejected: number;
+  evv_oldest_pending_at: string | null;
+
+  exceptions_open_critical: number;
+  exceptions_open_warning: number;
+  exceptions_open_info: number;
+
+  credentials_expired: number;
+  credentials_expiring_30d: number;
+
+  last_user_login_at: string | null;
+}
+
+export interface FleetSummary {
+  agencies_total: number;
+  agencies_suspended: number;
+  agencies_with_rejected_evv: number;
+  agencies_with_stalled_evv: number;
+  agencies_with_critical_exceptions: number;
+  open_critical_exceptions: number;
+}
+
+export interface Fleet {
+  summary: FleetSummary;
+  agencies: AgencyHealth[];
+}
+
+export interface PlatformAuditEntry {
+  id: string;
+  action: string;
+  actor_display_name: string | null;
+  subject_agency_id: string | null;
+  subject_agency_name: string | null;
+  subject_operator_id: string | null;
+  details: Record<string, unknown>;
+  source_ip: string | null;
+  occurred_at: string;
 }
 
 export interface Visit {
@@ -284,6 +382,13 @@ export interface ReviewStatus {
 export const api = {
   me: (token: string) => apiFetch<AgencyUser>("/v1/auth/me", { token }),
 
+  /**
+   * Public self-serve sign-up. The one call in this client with no token, by necessity:
+   * there is no tenant to authenticate against until it returns.
+   */
+  createAgency: (body: Record<string, unknown>) =>
+    apiFetch<Agency>("/v1/agencies", { method: "POST", body }),
+
   startMfaEnrolment: (token: string, currentCode?: string) =>
     apiFetch<MfaEnrolmentStarted>("/v1/auth/mfa/enroll", {
       token,
@@ -407,4 +512,77 @@ export const api = {
       method: "POST",
       body,
     }),
+};
+
+/**
+ * The CareOS operator console.
+ *
+ * A separate object rather than more entries on `api`, so a tenant screen cannot reach a
+ * platform endpoint by autocomplete. The tokens are different kinds — a platform token has
+ * no `agency_id` and is refused by every tenant route — and keeping the two clients apart
+ * makes that visible at the call site rather than only in the server's decoder.
+ */
+export const platformApi = {
+  login: (email: string, password: string, mfaCode?: string) =>
+    apiFetch<TokenPair>("/v1/platform/auth/login", {
+      method: "POST",
+      body: mfaCode ? { email, password, mfa_code: mfaCode } : { email, password },
+    }),
+
+  me: (token: string) => apiFetch<PlatformOperator>("/v1/platform/me", { token }),
+
+  startMfaEnrolment: (token: string, currentCode?: string) =>
+    apiFetch<MfaEnrolmentStarted>("/v1/platform/auth/mfa/enroll", {
+      token,
+      method: "POST",
+      body: { current_code: currentCode ?? null },
+    }),
+
+  confirmMfaEnrolment: (token: string, code: string) =>
+    apiFetch<TokenPair>("/v1/platform/auth/mfa/confirm", {
+      token,
+      method: "POST",
+      body: { code },
+    }),
+
+  fleet: (token: string) => apiFetch<Fleet>("/v1/platform/agencies", { token }),
+
+  agency: (token: string, agencyId: string) =>
+    apiFetch<AgencyHealth>(`/v1/platform/agencies/${agencyId}`, { token }),
+
+  suspendAgency: (token: string, agencyId: string, reason: string) =>
+    apiFetch<AgencyHealth>(`/v1/platform/agencies/${agencyId}/suspend`, {
+      token,
+      method: "POST",
+      body: { reason },
+    }),
+
+  reinstateAgency: (token: string, agencyId: string, note: string) =>
+    apiFetch<AgencyHealth>(`/v1/platform/agencies/${agencyId}/reinstate`, {
+      token,
+      method: "POST",
+      body: { note },
+    }),
+
+  operators: (token: string) =>
+    apiFetch<PlatformOperator[]>("/v1/platform/operators", { token }),
+
+  createOperator: (token: string, body: Record<string, unknown>) =>
+    apiFetch<PlatformOperator>("/v1/platform/operators", { token, method: "POST", body }),
+
+  disableOperator: (token: string, operatorId: string, reason: string) =>
+    apiFetch<PlatformOperator>(`/v1/platform/operators/${operatorId}/disable`, {
+      token,
+      method: "POST",
+      body: { reason },
+    }),
+
+  enableOperator: (token: string, operatorId: string) =>
+    apiFetch<PlatformOperator>(`/v1/platform/operators/${operatorId}/enable`, {
+      token,
+      method: "POST",
+    }),
+
+  audit: (token: string, limit = 100) =>
+    apiFetch<PlatformAuditEntry[]>(`/v1/platform/audit?limit=${limit}`, { token }),
 };

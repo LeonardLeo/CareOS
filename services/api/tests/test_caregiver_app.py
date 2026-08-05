@@ -390,6 +390,7 @@ async def test_middleware_generated_responses_still_carry_cors_headers(
         auth_per_minute=1_000_000,
         auth_per_ip_per_minute=1_000_000,
         evv_anomaly_per_minute=1_000_000,
+        signup_per_hour=1_000_000,
     )
     limiter.store.reset()
     try:

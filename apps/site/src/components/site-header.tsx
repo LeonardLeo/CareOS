@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { Mark } from "@/components/mark";
-import { NAV, SIGN_IN_URL, SITE_NAME } from "@/content/site";
+import { NAV, SIGN_IN_URL, SIGN_UP_URL, SITE_NAME } from "@/content/site";
 
 /**
  * Sticky header.
@@ -51,6 +51,12 @@ export function SiteHeader() {
           })}
           <a className="btn btn--ghost btn--sm" href={SIGN_IN_URL}>
             Sign in
+          </a>
+          {/* Both destinations are the admin console, which is a different origin from this
+              site. Sign-up needs a server and a credential exchange; this site deliberately
+              has neither. */}
+          <a className="btn btn--accent btn--sm" href={SIGN_UP_URL}>
+            Start free
           </a>
         </nav>
       </div>

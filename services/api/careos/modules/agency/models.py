@@ -54,6 +54,25 @@ class UserStatus(enum.StrEnum):
     suspended = "suspended"
 
 
+class AgencyStatus(enum.StrEnum):
+    """Whether this tenant may be used at all.
+
+    Set by a CareOS platform operator, not by anyone inside the agency
+    (`careos.modules.platform`). `suspended` is the strongest action the platform can take
+    and it is deliberately severe: nobody in the agency can sign in, no token already issued
+    keeps working, and that includes the caregiver app — so a suspension stops clock-ins.
+
+    That consequence is stated rather than softened. A suspension is for non-payment, a
+    breach of the acceptable-use terms, or a security incident, and a version of it that let
+    the workforce carry on would not be a suspension. It requires a written reason, it is
+    recorded in the agency's own audit trail as well as the platform's, and it is reversible
+    in one action.
+    """
+
+    active = "active"
+    suspended = "suspended"
+
+
 class Agency(Base, PrimaryKeyMixin, TimestampMixin):
     """The tenant root. Its `id` is the tenant key carried by every other table."""
 
@@ -88,6 +107,21 @@ class Agency(Base, PrimaryKeyMixin, TimestampMixin):
     ranking_display_enabled_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: Set by a CareOS platform operator. The login path, the refresh path, and the
+    #: per-request session check all read it, so suspending takes effect on the next request
+    #: rather than at the end of an access token's TTL.
+    status: Mapped[AgencyStatus] = mapped_column(
+        SAEnum(AgencyStatus, name="agency_status"),
+        nullable=False,
+        default=AgencyStatus.active,
+        server_default=text("'active'"),
+    )
+    suspended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Why, in the operator's words. Kept on the row rather than only in the audit log for
+    #: the same reason `app_user.disabled_reason` is: the question "why can nobody here sign
+    #: in?" is asked by whoever is looking at the agency, and an answer that needs an audit
+    #: query is an answer most people will not get. Shown to the agency at the sign-in screen.
+    suspended_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class AppUser(Base, PrimaryKeyMixin, TimestampMixin):

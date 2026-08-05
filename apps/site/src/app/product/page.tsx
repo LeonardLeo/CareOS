@@ -4,7 +4,7 @@ import Link from "next/link";
 import { CoverageBoard } from "@/components/coverage-board";
 import { PageHero } from "@/components/page-hero";
 import { Reveal } from "@/components/reveal";
-import { partnerMailto } from "@/content/site";
+import { SIGN_UP_URL } from "@/content/site";
 
 export const metadata: Metadata = {
   title: "Product",
@@ -167,8 +167,11 @@ export default function ProductPage() {
               first conversation.
             </p>
             <div style={{ marginTop: "var(--s6)" }}>
-              <Link className="btn btn--accent" href="/contact/">
-                Start a conversation <span className="arrow">→</span>
+              <a className="btn btn--accent" href={SIGN_UP_URL}>
+                Set up your agency <span className="arrow">→</span>
+              </a>
+              <Link className="btn btn--ghost" href="/contact/">
+                Start a conversation
               </Link>
             </div>
           </Reveal>

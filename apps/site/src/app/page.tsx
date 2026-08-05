@@ -3,7 +3,7 @@ import Link from "next/link";
 import { CoverageBoard } from "@/components/coverage-board";
 import { Figures } from "@/components/figures";
 import { Reveal } from "@/components/reveal";
-import { SIGN_IN_URL, partnerMailto } from "@/content/site";
+import { SIGN_IN_URL, SIGN_UP_URL, partnerMailto } from "@/content/site";
 
 /**
  * The page people are sent to before they have an account.
@@ -101,16 +101,19 @@ export default function Home() {
               system.
             </p>
             <div className="hero__actions">
-              <a className="btn btn--accent" href={partnerMailto()}>
-                Become a design partner <span className="arrow">→</span>
+              <a className="btn btn--accent" href={SIGN_UP_URL}>
+                Set up your agency <span className="arrow">→</span>
+              </a>
+              <a className="btn btn--ghost" href={partnerMailto()}>
+                Become a design partner
               </a>
               <Link className="btn btn--ghost" href="/product/">
                 See what we build
               </Link>
             </div>
             <p className="hero__note">
-              In active development. We are looking for a small number of agencies to build
-              with, not to sell to.
+              In active development. Sign-up is open and takes about a minute; we are also
+              looking for a small number of agencies to build with, not to sell to.
             </p>
           </Reveal>
 

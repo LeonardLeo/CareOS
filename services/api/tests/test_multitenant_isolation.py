@@ -53,17 +53,176 @@ async def test_every_tenant_table_has_forced_rls(database: None) -> None:
         assert forced, f"{table} does not have FORCE ROW LEVEL SECURITY"
 
 
-async def test_app_role_lacks_bypassrls(database: None) -> None:
-    """The application role must not be able to bypass RLS or be a superuser."""
+@pytest.mark.parametrize(
+    "role", ["careos_app", "careos_platform", "careos_platform_views"]
+)
+async def test_request_path_roles_lack_bypassrls(database: None, role: str) -> None:
+    """None of the roles the application connects as may bypass RLS or be a superuser.
+
+    `careos_app` was always here. `careos_platform` joined it when the CareOS operator
+    console was built, and it is the one where the shortcut is most tempting: it legitimately
+    needs to know something about every tenant, so "just give it BYPASSRLS" is the change
+    somebody will eventually propose. The aggregate view exists so that is never necessary,
+    and this is what stops it being done quietly anyway.
+
+    `careos_platform_views` owns that view and therefore reads across tenants — but through
+    explicit `TO careos_platform_views USING (true)` policies on nine named tables, not by
+    bypassing the mechanism. The difference matters: a policy is greppable and a role
+    attribute is not.
+
+    `careos_auth` is deliberately absent from this list. It holds BYPASSRLS by design, for
+    the two operations that precede knowing a tenant, and `test_privileged_role_is_narrow`
+    below is what bounds it instead.
+    """
     async with tenant_session(None) as session:
         row = (
             await session.execute(
-                text("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = 'careos_app'")
+                text("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = :role"),
+                {"role": role},
             )
         ).one()
     bypassrls, is_super = row
-    assert not bypassrls, "careos_app holds BYPASSRLS — tenant isolation is defeated"
-    assert not is_super, "careos_app is a superuser — superusers bypass RLS"
+    assert not bypassrls, f"{role} holds BYPASSRLS — tenant isolation is defeated"
+    assert not is_super, f"{role} is a superuser — superusers bypass RLS"
+
+
+async def test_the_view_owner_role_cannot_log_in(database: None) -> None:
+    """`careos_platform_views` is an owner, not an account.
+
+    It is the one role in the system with cross-tenant read policies on the tables that hold
+    PHI. That is only acceptable while nothing can connect as it, so the whole design rests
+    on this attribute.
+    """
+    async with tenant_session(None) as session:
+        can_login = (
+            await session.execute(
+                text("SELECT rolcanlogin FROM pg_roles WHERE rolname = 'careos_platform_views'")
+            )
+        ).scalar_one()
+    assert not can_login, (
+        "careos_platform_views can log in — it owns the cross-tenant aggregate view, so a "
+        "login for it is a login that reads every tenant's rows"
+    )
+
+
+async def test_platform_policies_did_not_widen_what_the_app_role_sees(
+    tenant_a: TenantFixture, tenant_b: TenantFixture
+) -> None:
+    """Adding role-scoped policies must not change what `careos_app` is bound by.
+
+    A PostgreSQL policy names the roles it applies to and is consulted only for a member of
+    one of them, so the `TO careos_platform_views USING (true)` policies added in migration
+    0013 should be invisible to `careos_app`. "Should be" is the reason this test exists: it
+    is the exact assumption that, if wrong, turns the operator console into a cross-tenant
+    leak reachable from every ordinary request.
+
+    Asserted two ways — the policy inventory, and an actual cross-tenant read.
+    """
+    await make_client_with_plan(tenant_a)
+
+    async with tenant_session(tenant_b.agency_id) as session:
+        # Every policy on `client` that could apply to careos_app must still be the tenant
+        # one. `polroles` is empty (meaning PUBLIC) for the tenant policy and names the view
+        # owner for the aggregate one.
+        rows = (
+            await session.execute(
+                text(
+                    """
+                    SELECT polname,
+                           coalesce(
+                               array_to_string(
+                                   ARRAY(SELECT rolname FROM pg_roles
+                                          WHERE oid = ANY(pol.polroles)), ','),
+                               '')
+                    FROM pg_policy pol
+                    JOIN pg_class c ON c.oid = pol.polrelid
+                    WHERE c.relname = 'client'
+                    ORDER BY polname
+                    """
+                )
+            )
+        ).all()
+        by_name = dict(rows)
+        assert by_name["client_tenant_isolation"] == "", (
+            "the tenant policy is no longer unconditional across roles"
+        )
+        assert by_name["client_platform_aggregate"] == "careos_platform_views", (
+            "the aggregate policy is not restricted to the view-owner role"
+        )
+
+        # And the behaviour, not just the catalogue.
+        assert (await session.execute(select(Client))).scalars().all() == []
+
+
+#: Every relation a role holds any grant on, table-level or column-level.
+#:
+#: Read from `pg_class.relacl` and `pg_attribute.attacl` rather than from
+#: `information_schema.role_table_grants`, which only reports grants involving the *current*
+#: user. Connected as `careos_app`, the information-schema view returns an empty set for
+#: every other role — so a test built on it passes vacuously, which is how the first version
+#: of this reported that `careos_platform` could reach nothing at all.
+_REACHABLE_RELATIONS_SQL = """
+SELECT DISTINCT c.relname
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+CROSS JOIN LATERAL aclexplode(c.relacl) acl
+JOIN pg_roles r ON r.oid = acl.grantee
+WHERE n.nspname = 'public' AND r.rolname = :role
+UNION
+SELECT DISTINCT c.relname
+FROM pg_attribute att
+JOIN pg_class c ON c.oid = att.attrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+CROSS JOIN LATERAL aclexplode(att.attacl) acl
+JOIN pg_roles r ON r.oid = acl.grantee
+WHERE n.nspname = 'public' AND r.rolname = :role
+"""
+
+
+async def _reachable_relations(role: str) -> set[str]:
+    async with tenant_session(None) as session:
+        rows = (
+            await session.execute(text(_REACHABLE_RELATIONS_SQL), {"role": role})
+        ).scalars().all()
+    return set(rows)
+
+
+async def test_privileged_role_is_narrow(database: None) -> None:
+    """`careos_auth` holds BYPASSRLS, so what it can reach at all is the boundary.
+
+    Three tables — `agency`, `app_user`, `audit_log` — plus read-only reference data. A
+    fourth appearing here means a pre-tenant code path grew a reach it should not have, and
+    the whole argument for a separate pool rests on this staying short.
+    """
+    assert await _reachable_relations("careos_auth") == {
+        "agency",
+        "app_user",
+        "audit_log",
+        "credential_type_ref",
+        "evv_aggregator_ref",
+        "payer_service_code_ref",
+    }
+
+
+async def test_platform_role_reaches_no_tenant_table_but_agency(database: None) -> None:
+    """The console's reach, asserted as an inventory rather than as a claim.
+
+    This is the single most important assertion about the platform design. It is written as
+    "here is the complete list" rather than "it cannot read `client`", because the failure
+    mode being guarded against is a *new* grant added later for a good-sounding reason.
+    """
+    assert await _reachable_relations("careos_platform") == {
+        # Column-scoped: six columns readable, four writable. Not `tax_id_encrypted`.
+        "agency",
+        # Write-only. The console records a suspension in the agency's own trail and cannot
+        # read that trail back.
+        "audit_log",
+        # Counts and statuses, one row per agency.
+        "platform_agency_health",
+        # Its own two tables.
+        "platform_audit_log",
+        "platform_operator",
+    }
 
 
 async def test_cross_tenant_read_returns_nothing(

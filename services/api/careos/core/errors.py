@@ -55,6 +55,25 @@ class AccountInactiveError(AuthenticationError):
     code = "ACCOUNT_INACTIVE"
 
 
+class AgencySuspendedError(AuthenticationError):
+    """The credentials are fine and the whole tenant has been suspended by CareOS.
+
+    Distinct from `ACCOUNT_INACTIVE`, which is one person disabled by their own
+    administrator. This one is nobody in the agency, done from outside it, and the difference
+    is the entire content of the message: telling an owner their account was disabled sends
+    them to the user list to look for a change nobody in the agency made.
+
+    Reached only after the password verifies, so it discloses nothing to someone guessing —
+    the same rule the disabled-account branch follows.
+
+    Refused at login, at refresh, and on every authenticated request, so a suspension takes
+    effect on the next request rather than at the end of an access token's TTL. That
+    deliberately includes the caregiver app: see `AgencyStatus`.
+    """
+
+    code = "AGENCY_SUSPENDED"
+
+
 class PermissionDeniedError(CareOSError):
     status_code = 403
     code = "PERMISSION_DENIED"

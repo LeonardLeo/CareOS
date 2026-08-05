@@ -17,6 +17,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from careos.modules.agency.models import Role
+from careos.modules.platform.models import PlatformRole
 
 
 class ORMModel(BaseModel):
@@ -82,6 +83,10 @@ class AgencyOut(ORMModel):
     accepted_payer_types: list[str]
     parent_org_id: uuid.UUID | None
     created_at: datetime
+    #: `active` or `suspended`. Returned so the admin console can tell an owner why the rest
+    #: of the product is refusing them, rather than leaving a suspension visible only as a
+    #: failed sign-in.
+    status: str
 
 
 class AgencyUpdate(BaseModel):
@@ -671,3 +676,135 @@ class WebhookDeliveryOut(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- Platform console (CareOS-global, not tenant-scoped) ------------------------------------
+#
+# None of these carry an `agency_id` taken from a request body either — but for the opposite
+# reason to the rule at the top of this file. There, the tenant must come from the token. Here
+# there is no tenant at all: the caller is a CareOS operator, the agency is named in the path
+# for the two endpoints that act on one, and authorization comes from the operator's platform
+# role rather than from membership of anything.
+
+
+class PlatformLoginRequest(BaseModel):
+    email: str
+    password: str
+    mfa_code: str | None = Field(default=None, max_length=32)
+
+
+class PlatformOperatorOut(ORMModel):
+    id: uuid.UUID
+    email: str
+    display_name: str
+    role: PlatformRole
+    status: str
+    mfa_enrolled: bool
+    created_at: datetime
+    last_login_at: datetime | None
+    sessions_revoked_at: datetime | None
+    disabled_reason: str | None
+
+
+class PlatformOperatorCreate(BaseModel):
+    email: EmailStr
+    display_name: str = Field(min_length=1, max_length=200)
+    role: PlatformRole
+    #: Provisional, like the tenant-side invite: set here so the account is usable before the
+    #: managed identity provider is wired up, and deleted with the local password path.
+    initial_password: str = Field(min_length=16)
+
+
+class PlatformOperatorDisable(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class AgencyHealthOut(BaseModel):
+    """One agency's operational state, as a CareOS operator sees it.
+
+    Every field is a status, an identifier the agency registered under, a count, or a
+    timestamp. There is no client, caregiver, applicant, or user named anywhere in it, and
+    that is enforced a layer below this model: the database role behind these endpoints has no
+    grant on any table those live in.
+    """
+
+    agency_id: uuid.UUID
+    legal_name: str
+    status: str
+    suspended_at: datetime | None
+    suspended_reason: str | None
+    service_states: list[str]
+    service_lines: list[str]
+    created_at: datetime
+
+    users_total: int
+    users_active: int
+    owner_admins_active: int
+    users_missing_mfa: int
+    caregivers_active: int
+    clients_active: int
+
+    visits_next_7d: int
+    visits_unfilled_next_7d: int
+
+    evv_pending: int
+    evv_transmitted: int
+    evv_acknowledged: int
+    evv_rejected: int
+    evv_oldest_pending_at: datetime | None
+
+    exceptions_open_critical: int
+    exceptions_open_warning: int
+    exceptions_open_info: int
+
+    credentials_expired: int
+    credentials_expiring_30d: int
+
+    last_user_login_at: datetime | None
+
+
+class FleetSummaryOut(BaseModel):
+    """Fleet-wide totals, computed from the same rows the list returns.
+
+    Derived rather than queried separately, so the headline figure and the table underneath
+    it can never disagree — which is the usual way a summary card starts lying.
+    """
+
+    agencies_total: int
+    agencies_suspended: int
+    agencies_with_rejected_evv: int
+    agencies_with_stalled_evv: int
+    agencies_with_critical_exceptions: int
+    open_critical_exceptions: int
+
+
+class FleetOut(BaseModel):
+    summary: FleetSummaryOut
+    agencies: list[AgencyHealthOut]
+
+
+class SuspendAgencyRequest(BaseModel):
+    """Why a tenant is being taken offline.
+
+    Required, and long enough to be a sentence. It is shown to the agency on their own
+    sign-in screen and written into their own audit trail, so "non-payment" with no context
+    becomes a support call CareOS could have avoided.
+    """
+
+    reason: str = Field(min_length=10, max_length=500)
+
+
+class ReinstateAgencyRequest(BaseModel):
+    note: str = Field(min_length=3, max_length=500)
+
+
+class PlatformAuditEntryOut(BaseModel):
+    id: uuid.UUID
+    action: str
+    actor_display_name: str | None
+    subject_agency_id: uuid.UUID | None
+    subject_agency_name: str | None
+    subject_operator_id: uuid.UUID | None
+    details: dict[str, Any]
+    source_ip: str | None
+    occurred_at: datetime

@@ -17,9 +17,11 @@ reimplementation of it.
 from __future__ import annotations
 
 import uuid
+from datetime import date
 
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import select
 
 from careos.core.ratelimit import (
     AUTH_PATHS,
@@ -32,8 +34,13 @@ from careos.core.ratelimit import (
     get_rate_limiter,
     tier_for,
 )
+from careos.db.session import tenant_session
 from careos.modules.agency.models import Role
-from tests.conftest import TenantFixture
+from careos.modules.credentialing.models import Caregiver
+from careos.modules.scheduling import service as scheduling
+from careos.modules.scheduling.models import CarePlan, ComplianceException
+from careos.modules.scheduling.service import ANOMALOUS_VOLUME_RULE
+from tests.conftest import TenantFixture, make_client_with_plan
 
 
 @pytest.fixture
@@ -61,6 +68,7 @@ def tight_limits():
             auth_per_minute=overrides.get("auth", 1_000_000),
             auth_per_ip_per_minute=overrides.get("auth_ip", 1_000_000),
             evv_anomaly_per_minute=overrides.get("evv", 1_000_000),
+            signup_per_hour=overrides.get("signup", 1_000_000),
         )
         store.reset()
         return limiter
@@ -84,14 +92,26 @@ def test_login_and_refresh_are_in_the_auth_tier() -> None:
     assert tier_for("/v1/auth/refresh", "POST") is Tier.auth
 
 
-def test_agency_signup_is_auth_tier_but_reading_an_agency_is_not() -> None:
-    """Same path, different exposure: POST is public signup, GET needs a token.
+def test_the_platform_console_login_is_in_the_auth_tier_too() -> None:
+    """The password form in front of the most privileged principal in the system."""
+    assert tier_for("/v1/platform/auth/login", "POST") is Tier.auth
+    assert tier_for("/v1/platform/auth/refresh", "POST") is Tier.auth
+
+
+def test_agency_signup_has_its_own_tier_but_reading_an_agency_does_not() -> None:
+    """Same path, different exposure: POST is public sign-up, GET needs a token.
 
     Treating the path alone as pre-authentication would apply an address-keyed limit to ordinary
     authenticated reads, which is both wrong and easy to do by accident.
+
+    Sign-up is its own tier rather than sharing the auth one because the abuse has a different
+    shape and a different period. A sign-in ceiling is about guessing and is measured per
+    minute; a sign-up creates a tenant, and one paced at a request a minute would sit under any
+    per-minute limit forever while creating 1,440 agencies a day.
     """
-    assert tier_for("/v1/agencies", "POST") is Tier.auth
+    assert tier_for("/v1/agencies", "POST") is Tier.signup
     assert tier_for("/v1/agencies", "GET") is Tier.standard
+    assert tier_for("/v1/agencies", "PATCH") is Tier.standard
 
 
 def test_everything_else_is_standard() -> None:
@@ -206,6 +226,7 @@ async def test_a_limiter_returns_no_decision_for_an_exempt_tier() -> None:
             auth_per_minute=1,
             auth_per_ip_per_minute=1,
             evv_anomaly_per_minute=1,
+            signup_per_hour=1,
         )
     )
     assert await limiter.check(tier=Tier.exempt, agency_id="a", source_ip="1.2.3.4") is None
@@ -219,6 +240,7 @@ async def test_standard_tier_is_keyed_by_agency_not_address() -> None:
             auth_per_minute=99,
             auth_per_ip_per_minute=99,
             evv_anomaly_per_minute=99,
+            signup_per_hour=99,
         )
     )
     first = await limiter.check(tier=Tier.standard, agency_id="agency-a", source_ip="1.2.3.4")
@@ -238,6 +260,7 @@ async def test_unauthenticated_standard_traffic_is_keyed_by_address() -> None:
             auth_per_minute=99,
             auth_per_ip_per_minute=99,
             evv_anomaly_per_minute=99,
+            signup_per_hour=99,
         )
     )
     first = await limiter.check(tier=Tier.standard, agency_id=None, source_ip="9.9.9.9")
@@ -253,6 +276,7 @@ async def test_login_attempts_are_counted_per_account_and_address() -> None:
             auth_per_minute=2,
             auth_per_ip_per_minute=99,
             evv_anomaly_per_minute=99,
+            signup_per_hour=99,
         )
     )
     for _ in range(2):
@@ -277,6 +301,7 @@ async def test_login_email_case_does_not_buy_a_fresh_bucket() -> None:
             auth_per_minute=1,
             auth_per_ip_per_minute=99,
             evv_anomaly_per_minute=99,
+            signup_per_hour=99,
         )
     )
     assert (await limiter.check_login_attempt(source_ip="1.1.1.1", email="Ada@Example.com")).allowed
@@ -293,12 +318,89 @@ async def test_evv_volume_is_flagged_but_never_refused() -> None:
             auth_per_minute=99,
             auth_per_ip_per_minute=99,
             evv_anomaly_per_minute=2,
+            signup_per_hour=99,
         )
     )
     assert await limiter.note_evv_volume(agency_id="a", caregiver_id="cg") is False
     assert await limiter.note_evv_volume(agency_id="a", caregiver_id="cg") is False
     # Third in the window is anomalous — reported to the caller, and the caller does not block.
     assert await limiter.note_evv_volume(agency_id="a", caregiver_id="cg") is True
+
+
+async def test_anomalous_evv_volume_opens_a_compliance_exception(
+    client, tenant_a: TenantFixture, tight_limits, reference_data: None
+) -> None:
+    """Detection that only increments a counter is detection nobody works.
+
+    Clock-in spends the one-action-per-minute ceiling; clock-out is the anomalous request.
+    Both must succeed (Section 9), and the open exception must land on the caregiver so the
+    scheduler's queue surfaces it.
+    """
+    _client_id, plan_id = await make_client_with_plan(tenant_a)
+    async with tenant_session(tenant_a.agency_id) as session:
+        plan = await session.get(CarePlan, plan_id)
+        assert plan is not None
+        visits = await scheduling.generate_visits(
+            session,
+            principal=tenant_a.principal(),
+            care_plan=plan,
+            window=scheduling.GenerationWindow(
+                start=date.fromisoformat("2026-08-03"),
+                end=date.fromisoformat("2026-08-05"),
+            ),
+            duration_minutes=60,
+        )
+        visit = visits[0]
+        caregiver = await session.get(Caregiver, tenant_a.caregiver_id)
+        assert caregiver is not None
+        await scheduling.assign_caregiver(
+            session, principal=tenant_a.principal(), visit=visit, caregiver=caregiver
+        )
+        visit_id = visit.id
+
+    headers = tenant_a.headers(Role.owner_admin)
+    tight_limits(evv=1)
+
+    clock_in = await client.post(
+        f"/v1/visits/{visit_id}/clock-in",
+        headers={**headers, "Idempotency-Key": f"ci-{uuid.uuid4()}"},
+        json={
+            "timestamp": "2026-08-03T09:00:00Z",
+            "capture_method": "mobile_gps",
+            "client_local_uuid": str(uuid.uuid4()),
+        },
+    )
+    assert clock_in.status_code == 201, clock_in.text
+
+    clock_out = await client.post(
+        f"/v1/visits/{visit_id}/clock-out",
+        headers={**headers, "Idempotency-Key": f"co-{uuid.uuid4()}"},
+        json={
+            "timestamp": "2026-08-03T10:00:00Z",
+            "client_local_uuid": str(uuid.uuid4()),
+        },
+    )
+    assert clock_out.status_code == 200, clock_out.text
+    assert clock_out.status_code != 429
+
+    async with tenant_session(tenant_a.agency_id) as session:
+        rows = (
+            (
+                await session.execute(
+                    select(ComplianceException).where(
+                        ComplianceException.rule_key == ANOMALOUS_VOLUME_RULE,
+                        ComplianceException.entity_type == "caregiver",
+                        ComplianceException.entity_id == tenant_a.caregiver_id,
+                        ComplianceException.resolved_at.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(rows) == 1
+    assert rows[0].severity == "warning"
+    assert rows[0].details["per_minute_ceiling"] == 1
 
 
 # --- Over HTTP ------------------------------------------------------------------------------
@@ -482,7 +584,7 @@ async def test_credential_spraying_across_accounts_is_refused(client, tight_limi
 
 async def test_agency_signup_is_limited(client, tight_limits) -> None:
     """Unlimited tenant creation from an unauthenticated endpoint is a database-filling vector."""
-    tight_limits(auth_ip=2)
+    tight_limits(signup=2)
 
     def body(n: int) -> dict:
         suffix = uuid.uuid4().hex[:8]
@@ -498,6 +600,50 @@ async def test_agency_signup_is_limited(client, tight_limits) -> None:
 
     statuses = [(await client.post("/v1/agencies", json=body(n))).status_code for n in range(4)]
     assert 429 in statuses
+
+
+async def test_signing_up_does_not_spend_the_sign_in_allowance(client, tight_limits) -> None:
+    """Separate buckets, so a burst of sign-ups cannot lock a network out of signing in.
+
+    The two limits share a source address and nothing else. Before they had separate tiers, a
+    handful of sign-up attempts from an office NAT would eat the auth allowance for everyone
+    behind it — a denial of service on the product, caused by the anti-abuse control.
+    """
+    tight_limits(signup=1, auth_ip=3)
+
+    suffix = uuid.uuid4().hex[:8]
+    first = await client.post(
+        "/v1/agencies",
+        json={
+            "legal_name": f"First Agency {suffix}",
+            "service_states": ["NY"],
+            "service_lines": ["home_care"],
+            "accepted_payer_types": ["medicaid_waiver"],
+            "owner_email": f"first-{suffix}@example.com",
+            "owner_password": "a-sufficiently-long-password",
+        },
+    )
+    assert first.status_code == 201
+    # The sign-up bucket is now spent.
+    second = await client.post(
+        "/v1/agencies",
+        json={
+            "legal_name": f"Second Agency {suffix}",
+            "service_states": ["NY"],
+            "service_lines": ["home_care"],
+            "accepted_payer_types": ["medicaid_waiver"],
+            "owner_email": f"second-{suffix}@example.com",
+            "owner_password": "a-sufficiently-long-password",
+        },
+    )
+    assert second.status_code == 429
+
+    # And signing in from the same address still works.
+    signin = await client.post(
+        "/v1/auth/login",
+        json={"email": f"first-{suffix}@example.com", "password": "a-sufficiently-long-password"},
+    )
+    assert signin.status_code == 200
 
 
 # --- Backend selection ------------------------------------------------------------------------

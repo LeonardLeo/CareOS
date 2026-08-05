@@ -177,6 +177,7 @@ async def test_rate_limit_refusals_are_counted_by_tier(client, tenant_a: TenantF
         auth_per_minute=1_000_000,
         auth_per_ip_per_minute=1_000_000,
         evv_anomaly_per_minute=1_000_000,
+        signup_per_hour=1_000_000,
     )
     limiter.store.reset()
     try:
@@ -237,8 +238,9 @@ async def test_the_degraded_gauge_tracks_the_shared_store() -> None:
 async def test_anomalous_evv_volume_is_counted(tenant_a: TenantFixture) -> None:
     """Section 9 asks for detection in place of throttling, and detection nobody reads is not.
 
-    The counter is the entire response to an anomaly — nothing is ever refused — so it has to
-    reach somewhere a person looks.
+    The counter is one half of the response — the compliance-exception path is covered in
+    `test_rate_limits.py`. Nothing is ever refused, so both signals have to reach somewhere a
+    person looks.
     """
     from careos.core.ratelimit import RateLimiter, RateLimitPolicy
 
@@ -248,6 +250,7 @@ async def test_anomalous_evv_volume_is_counted(tenant_a: TenantFixture) -> None:
             auth_per_minute=99,
             auth_per_ip_per_minute=99,
             evv_anomaly_per_minute=1,
+            signup_per_hour=99,
         )
     )
     before = _value("careos_evv_anomalous_volume_total")

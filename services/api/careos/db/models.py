@@ -14,15 +14,39 @@ from careos.modules.audit import models as audit_models
 from careos.modules.billing import models as billing_models
 from careos.modules.credentialing import models as credentialing_models
 from careos.modules.documentation import models as documentation_models
+from careos.modules.platform import models as platform_models
 from careos.modules.recruiting import models as recruiting_models
 from careos.modules.reference import models as reference_models
 from careos.modules.scheduling import models as scheduling_models
 from careos.modules.webhooks import models as webhook_models
 
-#: Tables that are global reference data — no `agency_id`, no RLS policy.
+#: Tables deliberately outside the tenant model — no `agency_id`, no RLS policy.
+#:
+#: Two kinds, and the distinction matters when reading this list. The `*_ref` tables are
+#: global *reference data*: the same rows for every agency, written by migrations and seeds.
+#: The two `platform_*` tables are CareOS's own records — who operates the platform and what
+#: they did — and they are global because their subject is CareOS rather than any tenant.
+#: Putting either under a tenant policy would be wrong in opposite directions: reference data
+#: would have to be duplicated per agency, and a platform operator would have to belong to
+#: one. See `careos.modules.platform.models` for the full argument.
 GLOBAL_TABLES: frozenset[str] = frozenset(
-    {"credential_type_ref", "evv_aggregator_ref", "payer_service_code_ref", "alembic_version"}
+    {
+        "credential_type_ref",
+        "evv_aggregator_ref",
+        "payer_service_code_ref",
+        "platform_operator",
+        "platform_audit_log",
+        "alembic_version",
+    }
 )
+
+#: The global tables that hold *mutable* rows rather than seeded reference data.
+#:
+#: Named separately because anything that resets state between runs — the test suite's
+#: truncation fixture — has to include them, while reference data must survive. Deriving it
+#: from `GLOBAL_TABLES` minus the `_ref` suffix would work today and break the first time a
+#: global table is named something else.
+PLATFORM_TABLES: tuple[str, ...] = ("platform_audit_log", "platform_operator")
 
 #: The tenant root. It is tenant-scoped like everything else, but its own primary key *is*
 #: the tenant key, so its RLS policy compares `id` rather than `agency_id`.
@@ -67,6 +91,7 @@ def assert_every_table_is_classified() -> None:
 
 __all__ = [
     "GLOBAL_TABLES",
+    "PLATFORM_TABLES",
     "RLS_TABLES",
     "TENANT_ROOT_TABLE",
     "TENANT_TABLES",
@@ -79,6 +104,7 @@ __all__ = [
     "credentialing_models",
     "documentation_models",
     "idempotency_models",
+    "platform_models",
     "recruiting_models",
     "reference_models",
     "scheduling_models",

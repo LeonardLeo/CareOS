@@ -9,8 +9,8 @@ documented milestone was completed. This file is the inventory to check instead.
 **Maintenance:** drift between this file and the code is a bug
 (`12_Engineering_Handoff_Guide.md` Section 5).
 
-**Last updated:** 2026-07-31
-**Assessed by:** build increment 19 (MFA enforcement, with three post-ship fixes)
+**Last updated:** 2026-08-05
+**Assessed by:** build increment 21 (self-serve sign-up; CareOS platform operator console)
 
 ---
 
@@ -21,9 +21,9 @@ documented milestone was completed. This file is the inventory to check instead.
 | Phase | 1 — AI Workforce Engine |
 | Milestone reached | **M0–M4 backend complete.** M5 (Phase 1 GA) blocked on clients and compliance review |
 | Stack | Python 3.11, FastAPI, PostgreSQL 16, SQLAlchemy 2 async, Alembic |
-| Tests | 394 API tests against real PostgreSQL and Redis, 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
-| Lint / types | `ruff` and `mypy` clean |
-| Clients | Admin web app and caregiver app both built and working. The caregiver app is an installable PWA, not React Native |
+| Tests | 516+ API tests against real PostgreSQL and Redis (including sign-up and platform console), 19 sync-engine unit tests, 10 browser end-to-end tests including genuinely-offline clock-in |
+| Lint / types | `ruff` and `mypy` clean; admin-web `tsc --noEmit` and `i18n:check` clean |
+| Clients | Admin web app (agency console + platform console + self-serve sign-up), public marketing site, and caregiver app. The caregiver app is an installable PWA, not React Native |
 | Compliance review | **Not performed** |
 
 **Stack choice.** `03_Technical_Architecture.md` Section 2 left TypeScript/NestJS and
@@ -93,8 +93,8 @@ asserted 401.
 ### Multi-factor authentication
 
 Required by `08_Security_Architecture.md` Section 1 for owner/admin, clinical supervisor, and
-billing/RCM. `app_user.mfa_enrolled` existed from the first migration with nothing setting or
-reading it.
+billing/RCM, and extended to scheduler (that document's "should become required").
+`app_user.mfa_enrolled` existed from the first migration with nothing setting or reading it.
 
 | Property | Implementation |
 |---|---|
@@ -121,9 +121,9 @@ than reading it, and each invisible to a passing test suite:
    cannot carry a code. One false failure per person per day buries the real ones. A wrong code
    is still recorded.
 
-**No QR code.** The enrolment screen shows the secret and the `otpauth://` URI as text, which
-every authenticator accepts by manual entry. Rendering a QR needs an encoder the admin app does
-not have. A real usability gap.
+**QR code.** The enrolment screen renders an inline SVG QR for the `otpauth://` URI and still
+shows the secret as text beside it — a scanner is the common path; manual entry covers a desktop
+password manager, a magnifier, or enrolling on the same phone that is displaying the page.
 
 ### Scheduling and EVV
 
@@ -258,7 +258,8 @@ Offline behaviour, verified in a real browser with the network cut:
 
 Next.js App Router, server-rendered. Screens: dashboard, scheduling board with gap queue and
 ranked suggestions, clients and care plans, recruiting funnel, credentialing renewal queue,
-compliance review standing, compliance-exception queue, users, security and MFA enrolment.
+compliance review standing, compliance-exception queue, users, security and MFA enrolment,
+self-serve agency sign-up (`/signup`), and the CareOS platform operator console (`/platform`).
 
 - The access token never reaches the browser. It lives in an httpOnly cookie and every API call
   runs server-side.
@@ -268,6 +269,36 @@ compliance review standing, compliance-exception queue, users, security and MFA 
   `npm run i18n:check` fails on user-facing strings that bypass the translator, and runs in CI.
 - Route handlers redirect with a code rather than an English sentence, so the sign-in screen
   answers in the reader's language.
+
+### Self-serve agency sign-up
+
+Lives in the admin console, not on the marketing site. `apps/site` is a static export that makes
+no third-party request; a sign-up form there would end that property and put a token in page
+JavaScript. The site links to `${APP_ORIGIN}/signup` instead.
+
+| Property | Implementation |
+|---|---|
+| Flow | Three progressive steps (identity → services → owner password). Draft cookie holds steps 1–2; the password never lands in that cookie |
+| API | `POST /v1/agencies` (public), rate-limited on its own `signup` tier (`rate_limit_signup_per_hour`, default 5/hour per IP) |
+| Session | Final step posts through a route handler; the access token goes straight into an httpOnly cookie |
+| UX | Works without JavaScript. Each step is a plain form post |
+| Localization | Full EN/ES string keys; errors redirect as codes, not English sentences |
+
+### CareOS platform operator console
+
+A separate principal from every agency user. Migration `0013_platform_operations` adds
+`platform_operator`, `platform_audit_log`, and a cross-tenant aggregate health view. Requests run
+as `careos_platform` — **no `BYPASSRLS`** — with column-scoped grants on `agency` for suspension
+and no grant on PHI tables. Cross-tenant visibility is one `SELECT` on one aggregate view owned by
+`careos_platform_views` (`NOLOGIN`).
+
+| Surface | Detail |
+|---|---|
+| API | `/v1/platform/auth/*`, `/me`, agency fleet list/detail, suspend/reinstate, operators CRUD-lite, platform audit |
+| Admin UI | `/platform/login`, fleet home, agency detail, operators, audit, security/MFA enrolment |
+| Bootstrap | First operator via `python -m careos.scripts.create_platform_operator` (or demo seed). No public bootstrap endpoint |
+| MFA | Required for every operator. An unenrolled login reaches enrolment endpoints and `/platform/me` only |
+| Audit | Platform trail records reads and writes; tenant `audit_log` also records suspension side-effects |
 
 **Information design.** An operational console for someone working a live gap under time
 pressure. Recessive chrome, data as the only loud thing on screen. Each view starts from the
@@ -534,9 +565,9 @@ above.
 | SOC 2 | **Not started.** Several underlying controls exist — access management, audit logging, encryption. No evidence collection |
 | Penetration test | **Not performed** |
 | Brute-force protection | **Built and tested.** 10 login attempts per minute per account and address, 30 per address across accounts, counted before the password is checked. Account lockout is not implemented: the limiter slows an attacker rather than stopping one, and a lockout policy needs a decision about the denial-of-service it enables |
-| EVV abuse detection | **Detection only.** Volume per caregiver is counted and logged above a ceiling no human reaches. It is not surfaced in the exception queue. Device fingerprinting and geo-velocity are not built; the app does not send a device identity |
+| EVV abuse detection | **Volume ceiling opens a compliance exception** (`evv.anomalous_volume`, warning, one open per caregiver) in addition to the metric and log. Clock-in/out are still never refused. Device fingerprinting and geo-velocity are not built; the app does not send a device identity |
 | Offboarding | **Built and tested.** Terminating a caregiver disables the account rather than only revoking sessions. Disabling and enabling are on the Users screen, both audited. A disabled account is refused at login and at refresh |
-| MFA | **Built and enforced** for owner/admin, clinical supervisor, and billing/RCM. Production refuses to boot with the requirement off |
+| MFA | **Built and enforced** for owner/admin, scheduler, clinical supervisor, and billing/RCM. Production refuses to boot with the requirement off |
 
 ## Suggested next steps
 
@@ -562,10 +593,15 @@ and verified. Everything below is a decision, a credential, or a signature.
 | 8 | **Telephony (IVR) clock-in** | Accepted by the API, modelled end to end, no phone system. For agencies where a large share of the workforce has no smartphone, this is a blocker rather than a gap |
 | 9 | **Tracing on the clock-in and EVV paths** | Metrics answer *that* a clock-in was slow. Nothing answers *why*. Instrumentation rather than infrastructure; the collector can come later |
 | 10 | **Staged export for large agencies** | The synchronous export refuses above `MAX_EXPORT_ROWS` with a 413. An agency past that ceiling cannot get its data out, which is a portability commitment with a size limit. Needs the object-storage bucket the `*_s3_key` columns anticipate |
-| 11 | **A QR code on the MFA enrolment screen** | The secret and `otpauth://` URI are text, which every authenticator accepts. Typing a 32-character secret into a phone is where people give up |
-| 12 | **Extend MFA to schedulers** | `08_Security_Architecture.md` Section 1 asks for it next. One line in `MFA_ELIGIBLE_ROLES` and one in `MFA_REQUIRED_ROLES`. Caregivers stay excluded until the caregiver app can ask for a code |
-| 13 | **A real routing provider** | `RoutingAdapter` and its registry exist; only the haversine approximation is implemented. Adequate for ranking candidates against each other, not for quoting travel time or paying it on a timesheet |
-| 14 | **Job-board integration, and a background-check vendor** | Behind the adapter interfaces `07_Integration_Specifications.md` Section 1 requires. Screening is no longer manual-only: `careos.integrations.screening` has the interface, a registry that raises rather than defaulting, async result handling, a re-screening job, and a flagged-while-scheduled compliance exception. What is left is one adapter class for a chosen vendor, a contract, and a BAA |
+| 11 | **A real routing provider** | `RoutingAdapter` and its registry exist; only the haversine approximation is implemented. Adequate for ranking candidates against each other, not for quoting travel time or paying it on a timesheet |
+| 12 | **Job-board integration, and a background-check vendor** | Behind the adapter interfaces `07_Integration_Specifications.md` Section 1 requires. Screening is no longer manual-only: `careos.integrations.screening` has the interface, a registry that raises rather than defaulting, async result handling, a re-screening job, and a flagged-while-scheduled compliance exception. What is left is one adapter class for a chosen vendor, a contract, and a BAA |
+
+**Done since the prior assessment (kept out of the queue above).** Self-serve agency sign-up
+(three-step wizard in the admin console; marketing site links only). CareOS platform operator
+console with a dedicated DB role, fleet health view, agency suspend/reinstate, operator
+lifecycle, and a separate audit trail. MFA required for schedulers; QR on the enrolment screen;
+anomalous EVV volume opens `evv.anomalous_volume` in the exception queue. The Users screen MFA
+badge list is aligned with `MFA_REQUIRED_ROLES`.
 
 ### Deliberately not next
 

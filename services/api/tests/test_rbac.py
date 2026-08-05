@@ -175,6 +175,46 @@ EXPECTED_ACCESS: dict[str, list[str]] = {
     "POST /v1/visits/{visit_id}/assign": ["owner_admin", "scheduler"],
     "POST /v1/visits/{visit_id}/clock-in": ["caregiver", "owner_admin", "scheduler"],
     "POST /v1/visits/{visit_id}/clock-out": ["caregiver", "owner_admin", "scheduler"],
+    # --- CareOS platform console -----------------------------------------------------
+    #
+    # Prefixed, because these are not tenant roles. A `platform_admin` is a different
+    # principal on a different table reached through a different database role, and a
+    # control-evidence matrix that listed them alongside `owner_admin` would read as though
+    # an agency could hold one.
+    #
+    # Nothing here is reachable by any tenant role, and no tenant endpoint above is reachable
+    # by a platform role. `test_platform_console.py` asserts both directions against the
+    # running app rather than leaving it to this table.
+    "POST /v1/platform/auth/login": ["*public*"],
+    "POST /v1/platform/auth/refresh": ["*public*"],
+    # `mfa_exempt`, and the only three routes here that are: an operator who has not enrolled
+    # must be able to render the enrolment screen and finish it. Everything else refuses them.
+    "GET /v1/platform/me": ["platform:platform_admin", "platform:platform_support"],
+    "POST /v1/platform/auth/mfa/enroll": [
+        "platform:platform_admin",
+        "platform:platform_support",
+    ],
+    "POST /v1/platform/auth/mfa/confirm": [
+        "platform:platform_admin",
+        "platform:platform_support",
+    ],
+    "GET /v1/platform/agencies": ["platform:platform_admin", "platform:platform_support"],
+    "GET /v1/platform/agencies/{agency_id}": [
+        "platform:platform_admin",
+        "platform:platform_support",
+    ],
+    # Suspension stops caregivers clocking in, so the role that reads the fleet all day is
+    # deliberately not the role that can do it.
+    "POST /v1/platform/agencies/{agency_id}/suspend": ["platform:platform_admin"],
+    "POST /v1/platform/agencies/{agency_id}/reinstate": ["platform:platform_admin"],
+    # Readable by both roles: "who holds this access" is the first question of an access
+    # review, and restricting it to the people who can change it makes the review depend on
+    # the reviewer being one of them.
+    "GET /v1/platform/operators": ["platform:platform_admin", "platform:platform_support"],
+    "POST /v1/platform/operators": ["platform:platform_admin"],
+    "POST /v1/platform/operators/{operator_id}/disable": ["platform:platform_admin"],
+    "POST /v1/platform/operators/{operator_id}/enable": ["platform:platform_admin"],
+    "GET /v1/platform/audit": ["platform:platform_admin", "platform:platform_support"],
 }
 
 

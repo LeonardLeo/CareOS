@@ -43,8 +43,13 @@ const ASSIGNABLE_ROLES = [
   "owner_admin",
 ] as const;
 
-/** MFA is mandatory for these roles (`08_Security_Architecture.md` Section 1). */
-const MFA_REQUIRED = ["owner_admin", "clinical_supervisor", "billing_rcm"];
+/** MFA is mandatory for these roles — keep in lockstep with `MFA_REQUIRED_ROLES` on the API. */
+const MFA_REQUIRED = [
+  "owner_admin",
+  "scheduler",
+  "clinical_supervisor",
+  "billing_rcm",
+];
 
 export default async function UsersPage({
   searchParams,
@@ -138,8 +143,9 @@ export default async function UsersPage({
                         {roleLabel(locale, user.role)} · {user.status} · added{" "}
                         {formatDate(user.created_at)}
                         {MFA_REQUIRED.includes(user.role) && !user.mfa_enrolled && (
-                          // Enrolment is tracked but not yet enforced at login. Showing the gap
-                          // is better than leaving it invisible until an auditor finds it.
+                          // Enforced at the API: an unenrolled privileged session can only reach
+                          // the enrolment endpoints. Surfacing it here so an owner does not have
+                          // to wait for that user to discover they are locked out of everything else.
                           <>
                             {" · "}
                             <span className="userrow__warn">{t("mfaNotEnrolled")}</span>

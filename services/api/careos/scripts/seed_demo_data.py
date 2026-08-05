@@ -29,6 +29,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+from sqlalchemy import select
+
+from careos.modules.platform.models import PlatformOperator
 
 
 def generate_demo_password() -> str:
@@ -426,10 +429,71 @@ def seed(base_url: str) -> None:
             api.post(f"/v1/applicants/{applicant['id']}/stage", json={"stage": stage})
     print(f"applicants     {len(APPLICANT_NAMES)} across the pipeline")
 
+    operator = seed_platform_operator()
+
     print()
     print("Sign in:")
-    print(f"  admin app      {OWNER_EMAIL} / {DEMO_PASSWORD}")
-    print(f"  caregiver app  {CAREGIVER_EMAIL} / {DEMO_PASSWORD}")
+    print(f"  admin app         {OWNER_EMAIL} / {DEMO_PASSWORD}")
+    print(f"  caregiver app     {CAREGIVER_EMAIL} / {DEMO_PASSWORD}")
+    if operator:
+        print(f"  operator console  {operator} / {DEMO_PASSWORD}  (at /platform/login)")
+
+
+def seed_platform_operator() -> str | None:
+    """Create a CareOS operator for the local console, direct to the database.
+
+    The one thing in this file that does not go through HTTP, because there is no endpoint
+    that could: creating the first operator requires being one, so it is bootstrapped with
+    database access instead (`careos.scripts.create_platform_operator` is the same path with
+    a prompt in front of it). Everything else here stays on the public API precisely so a
+    demo cannot reach a state the product cannot.
+
+    Skipped with a note rather than failing the seed if the platform role or table is
+    missing, which is what a database created before migration 0013 looks like. The rest of
+    the demo is unaffected, and the fix is one command.
+    """
+    import asyncio
+
+    from careos.db.session import dispose_engines, platform_session
+    from careos.modules.platform import service as platform_service
+    from careos.modules.platform.models import PlatformRole
+
+    email = "operator@careos.demo"
+
+    async def create() -> str | None:
+        try:
+            async with platform_session() as session:
+                existing = (
+                    await session.execute(
+                        select(PlatformOperator.email).where(PlatformOperator.email == email)
+                    )
+                ).scalar_one_or_none()
+                if existing:
+                    return email
+                await platform_service.create_operator(
+                    session,
+                    actor=None,
+                    email=email,
+                    display_name="Demo Operator",
+                    role=PlatformRole.platform_admin,
+                    initial_password=DEMO_PASSWORD,
+                )
+            return email
+        except Exception as exc:  # noqa: BLE001 - a demo must not fail on an optional extra
+            print(
+                f"platform op    skipped ({type(exc).__name__}). Re-run "
+                "services/api/scripts/bootstrap_db.sql and `alembic upgrade head`, "
+                "then seed again."
+            )
+            return None
+
+    try:
+        result = asyncio.run(create())
+    finally:
+        asyncio.run(dispose_engines())
+    if result:
+        print(f"platform op    {result} (platform_admin, MFA not yet enrolled)")
+    return result
 
 
 def refuse_non_local(base_url: str) -> None:

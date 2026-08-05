@@ -58,8 +58,13 @@ logger = structlog.get_logger(__name__)
 class Tier(enum.StrEnum):
     """Which limit applies to a request."""
 
-    #: Pre-authentication endpoints: login, token refresh, agency signup.
+    #: Pre-authentication endpoints: login and token refresh, tenant and platform alike.
     auth = "auth"
+    #: Public self-serve sign-up. Its own tier, because it is the only unauthenticated
+    #: endpoint that *creates a tenant*, and the shape of its abuse is different from a
+    #: password guess: paced slowly it evades any per-minute ceiling while still filling the
+    #: database, so it is limited per hour instead. See `Settings.rate_limit_signup_per_hour`.
+    signup = "signup"
     #: Everything else, keyed by agency.
     standard = "standard"
     #: Never throttled. See the module docstring.
@@ -88,11 +93,17 @@ AUTH_PATHS: frozenset[str] = frozenset(
     {
         "/v1/auth/login",
         "/v1/auth/refresh",
-        # Public agency signup. Unlimited tenant creation is both a spam vector and a way to
-        # fill the database from an unauthenticated endpoint.
-        "/v1/agencies",
+        # The CareOS operator console's own sign-in. Same reasoning as the tenant one and
+        # more of it: this is the password form in front of the principal that can see every
+        # tenant's operational state and take an agency offline.
+        "/v1/platform/auth/login",
+        "/v1/platform/auth/refresh",
     }
 )
+
+#: Public self-serve sign-up. One entry, and it is the only endpoint in the system that an
+#: unauthenticated caller can use to create a row nothing garbage collects.
+SIGNUP_PATHS: frozenset[str] = frozenset({"/v1/agencies"})
 
 
 def tier_for(path: str, method: str) -> Tier:
@@ -105,8 +116,8 @@ def tier_for(path: str, method: str) -> Tier:
         return Tier.exempt
     # POST /v1/agencies is public signup; GET/PATCH on an agency is an ordinary authenticated
     # read, so the tier depends on the method here rather than the path alone.
-    if path == "/v1/agencies" and method.upper() != "POST":
-        return Tier.standard
+    if path in SIGNUP_PATHS:
+        return Tier.signup if method.upper() == "POST" else Tier.standard
     if path in AUTH_PATHS:
         return Tier.auth
     return Tier.standard
@@ -432,6 +443,8 @@ class RateLimitPolicy:
     auth_per_ip_per_minute: int
     #: Clock-ins per minute from one caregiver above which something is wrong. Never blocks.
     evv_anomaly_per_minute: int
+    #: Self-serve tenant creations per hour from one address.
+    signup_per_hour: int
 
 
 class RateLimiter:
@@ -461,6 +474,15 @@ class RateLimiter:
             # inside the login endpoint instead, where the email is already parsed.
             return await self.store.consume(
                 f"auth:ip:{ip}", limit=self.policy.auth_per_ip_per_minute, window_seconds=60
+            )
+
+        if tier is Tier.signup:
+            # Its own bucket and its own window. Sharing the auth bucket would have meant a
+            # sign-up spending a caller's sign-in allowance and vice versa, which makes both
+            # limits harder to reason about and lets a burst of sign-ups lock the same
+            # network out of signing in.
+            return await self.store.consume(
+                f"signup:ip:{ip}", limit=self.policy.signup_per_hour, window_seconds=3600
             )
 
         # Standard tier: per agency where we know it, otherwise per address. Falling back to the
@@ -495,7 +517,8 @@ class RateLimiter:
         This is the other half of `05_API_Specification.md` Section 9: clock-in and clock-out are
         exempt from throttling "but are protected by abuse-detection heuristics instead". This is
         a deliberately shallow version of that — a volume ceiling no human can reach by working —
-        and it **never refuses the request**. It logs, so the signal exists and is greppable.
+        and it **never refuses the request**. Returns True when anomalous so the clock handler
+        can open a compliance exception; also logs and increments a counter.
 
         What it is not: device fingerprinting, geo-velocity, or duplicate-location detection.
         Those need a device identity the app does not yet send. Recorded as a gap in
@@ -551,7 +574,7 @@ def assert_rate_limit_paths_exist(app: FastAPI) -> None:
     from careos.core.rbac import _iter_route_specs  # local import to avoid a cycle
 
     registered = {spec.path for spec in _iter_route_specs(app)}
-    declared = EXEMPT_PATHS | AUTH_PATHS
+    declared = EXEMPT_PATHS | AUTH_PATHS | SIGNUP_PATHS
     missing = sorted(declared - registered)
     if missing:
         raise RuntimeError(
@@ -672,6 +695,7 @@ def get_rate_limiter() -> RateLimiter:
             auth_per_minute=settings.rate_limit_auth_per_minute,
             auth_per_ip_per_minute=settings.rate_limit_auth_per_ip_per_minute,
             evv_anomaly_per_minute=settings.rate_limit_evv_anomaly_per_minute,
+            signup_per_hour=settings.rate_limit_signup_per_hour,
         ),
         build_rate_limit_store(settings),
     )

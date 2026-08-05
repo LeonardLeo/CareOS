@@ -40,11 +40,13 @@ export async function POST(request: Request) {
     // it does distinguish, and only after the password has been verified — so saying so tells
     // the person something they can act on without telling anyone else anything new.
     const reason =
-      error instanceof ApiError && error.isAccountInactive
-        ? "disabled"
-        : error instanceof ApiError && error.isAuthError
-          ? "invalid"
-          : "failed";
+      error instanceof ApiError && error.isAgencySuspended
+        ? "suspended"
+        : error instanceof ApiError && error.isAccountInactive
+          ? "disabled"
+          : error instanceof ApiError && error.isAuthError
+            ? "invalid"
+            : "failed";
     return NextResponse.redirect(new URL(`/login?error=${reason}`, request.url), { status: 303 });
   }
 }

@@ -65,7 +65,24 @@
 .nav {
   display: flex;
   flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.nav__group {
+  display: flex;
+  flex-direction: column;
   gap: 1px;
+  min-width: 0;
+}
+
+.nav__group-label {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  padding: 0 var(--space-3) var(--space-1);
 }
 
 .nav__link {
@@ -86,7 +103,8 @@
   text-decoration: none;
 }
 
-.nav__link[data-active="true"] {
+.nav__link[data-active="true"],
+.nav__link[aria-current="page"] {
   background: var(--accent-wash);
   color: var(--accent);
 }
@@ -173,6 +191,8 @@
   padding: var(--space-5) var(--space-6) var(--space-7);
   max-width: var(--content-max);
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .page-header {
@@ -202,11 +222,22 @@
 /* --- Card ---------------------------------------------------------------- */
 
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   margin-bottom: var(--space-4);
   overflow: hidden;
+  transition:
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.card:hover {
+  box-shadow: var(--shadow-sm-hover);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
 }
 
 .card__header {
@@ -242,26 +273,43 @@
 
 .grid-2 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(21rem, 1fr));
+  /* Explicit two tracks fill the content column. `auto-fit` + a 21rem floor invented a
+     third collapsed track on typical desktop widths and left the cards looking short of
+     the rail they sit in. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
   align-items: start;
+  width: 100%;
 }
 
 /* --- Stat tiles ---------------------------------------------------------- */
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-3);
   margin-bottom: var(--space-4);
+  width: 100%;
 }
 
 .stat {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: var(--space-3) var(--space-4);
   display: block;
+  transition:
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.stat:hover {
+  box-shadow: var(--shadow-sm-hover);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
 }
 
 .stat--link {
@@ -708,7 +756,14 @@
  */
 .table {
   width: 100%;
-  min-width: 48rem;
+  /*
+   * Floor so a narrow phone scrolls the wrapper instead of crushing columns — the audit
+   * that introduced this used 48rem, which is wider than a half-width dashboard card at
+   * 1440px, so every nested table grew a horizontal scrollbar even when the copy fit.
+   * 30rem still exceeds a 390px viewport (and forces scroll there) while fitting inside
+   * a two-column card on a normal desktop.
+   */
+  min-width: 30rem;
   border-collapse: collapse;
   font-size: var(--text-sm);
 }
@@ -1013,9 +1068,10 @@
 
 .login__panel {
   width: min(23rem, 100%);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
   padding: var(--space-6);
 }
 
@@ -1034,6 +1090,212 @@
 .login__subtitle {
   color: var(--ink-muted);
   font-size: var(--text-xs);
+}
+
+/* The sign-up wizard needs room for a 51-item state grid; the sign-in panel does not, and
+   widening both would leave two fields floating in a wide box. */
+.login__panel--wide {
+  width: min(38rem, 100%);
+}
+
+/* --- Sign-up wizard -------------------------------------------------------- */
+/*
+ * Signup-only chrome. Shared primitives (`.fieldset`, `.summary`, `.checkgrid`) stay
+ * unprefixed because the operator agency detail page reuses the same definition-list
+ * pattern; only the step rail and signup-specific copy classes are namespaced here.
+ */
+
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  list-style: none;
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.steps__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Completed and current both get full-contrast ink. A step you have finished is still a
+   label you may want to read, and greying it out to signal "done" costs legibility for a
+   state the marker already carries. */
+.steps__item[data-state="current"],
+.steps__item[data-state="done"] {
+  color: var(--ink);
+}
+
+.steps__marker {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-strong);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+}
+
+.steps__item[data-state="current"] .steps__marker {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.steps__item[data-state="done"] .steps__marker {
+  background: var(--accent-wash);
+  border-color: var(--border-accent);
+  color: var(--accent-strong);
+}
+
+.signup__heading {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  margin-bottom: var(--space-2);
+}
+
+.signup__lede {
+  margin-bottom: var(--space-5);
+}
+
+.signup__actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* `.button` is an `<a>` on the back control, so it needs the padding and line box a
+   `<button>` gets from the user agent. */
+a.button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+a.button:hover {
+  text-decoration: none;
+}
+
+.fieldset {
+  border: none;
+  padding: 0;
+  margin: 0 0 var(--space-5);
+}
+
+.checkgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+/* Fifty-one two-letter codes. Narrower tracks than the labelled grid above, and still wide
+   enough that the row never becomes a single column on a phone. */
+.checkgrid--dense {
+  grid-template-columns: repeat(auto-fill, minmax(4.25rem, 1fr));
+}
+
+/* 2.25rem tall, which clears the 24px floor WCAG 2.2 (2.5.8) sets for a tap target. The
+   label is the target, not just the box inside it — a 13px checkbox with the words beside it
+   is the version that fails on a phone. */
+.checkgrid__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2.25rem;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  cursor: pointer;
+}
+
+.checkgrid__item:hover {
+  border-color: var(--border-strong);
+}
+
+.checkgrid__item:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+/* The ring belongs on the whole target rather than on the 13px box, which is otherwise the
+   only thing a keyboard user sees move. */
+.checkgrid__item:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.checkgrid__item input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+  flex: none;
+}
+
+/* A definition list read as label/value pairs. Two columns on anything wider than a phone,
+   stacked below that — a 1fr/1fr grid at 390px squeezes a value like "Medicaid waiver, Private
+   pay" into a column too narrow to hold it, which the layout check reports as `squeezed`. */
+.summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-2) 0 0;
+}
+
+.summary dt {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+.summary dd {
+  margin: 0 0 var(--space-2);
+  word-break: break-word;
+}
+
+.summary dd.num {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-medium);
+}
+
+@media (min-width: 30rem) {
+  .summary {
+    grid-template-columns: minmax(8rem, auto) minmax(0, 1fr);
+  }
+
+  .summary dd {
+    margin-bottom: 0;
+  }
+}
+
+/* --- Operator console ------------------------------------------------------ */
+/*
+ * One mark and one rail, so nobody can mistake which console they are in. A CareOS employee
+ * holding an operator session and a test-agency session in the same browser is the normal
+ * case, and two identical shells is how somebody suspends a customer thinking they are
+ * looking at their own sandbox. Colour is not the only signal — the wordmark reads
+ * "CareOS operations" underneath it — because colour alone never is here.
+ */
+
+.brand__mark--platform {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.sidebar--platform {
+  border-right: 2px solid var(--ink);
+}
+
+@media (max-width: 64rem) {
+  .sidebar--platform {
+    border-right: none;
+    border-bottom: 2px solid var(--ink);
+  }
 }
 
 /* --- Utilities ----------------------------------------------------------- */
@@ -1066,7 +1328,7 @@
 
 @media (max-width: 64rem) {
   .shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .sidebar {
@@ -1079,14 +1341,23 @@
   .nav {
     flex-direction: row;
     flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+
+  .nav__group-label {
+    width: 100%;
+  }
+
+  .grid-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .main {
     padding: var(--space-4);
-  }
-
-  .shell {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .timeline__row {

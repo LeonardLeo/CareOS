@@ -8,9 +8,10 @@
  *
  * WHAT THIS INTERFACE IS. A scheduler is the highest-frequency user in Phase 1, working a
  * live gap under time pressure (`09_UX...` persona table, Flow A). That makes this an
- * operational console, not a marketing dashboard: dense, quiet, and fast to scan. So the
- * chrome is deliberately recessive — hairline borders instead of drop shadows, tight
- * vertical rhythm, one accent — and the data is the only loud thing on screen.
+ * operational console, not a marketing dashboard: dense, quiet, and fast to scan. Chrome
+ * stays recessive — hairline borders, tight vertical rhythm, one accent — while raised
+ * work surfaces (cards, stats, login) get a soft shadow so planes read without competing
+ * with the data.
  *
  * COLOR IS COMPUTED, NOT CHOSEN BY EYE. The categorical slots, the ordinal ramp used by the
  * funnel, and both surfaces were run through the data-viz validator: adjacent CVD ΔE 9.1
@@ -28,12 +29,28 @@
 :root {
   color-scheme: light;
 
-  /* --- Surfaces: three planes, separated by hairlines rather than shadows ---- */
-  --plane: #f4f5f3;
-  --surface: #fbfbfa;
+  /* --- Surfaces: three planes; raised work surfaces also use soft elevation ---- */
+  /* Plane sits a half-step cooler/darker than pure near-white so white raised surfaces
+     (and their shadows) have a ground to lift against — without that separation the
+     39f244f-era soft shadows read as "no change" on a flat white-on-white console. */
+  --plane: #dde0d8;
+  --surface: #f2f3f0;
   --surface-raised: #ffffff;
-  --surface-sunken: #eeefec;
-  --surface-hover: #f2f3f0;
+  --surface-sunken: #d5d8d0;
+  --surface-hover: #e8ebe4;
+
+  /* Soft elevation in the spirit of the first admin pass (39f244f), but layered and
+     stepped up until lift is unmistakable on light planes — contact edge + ambient
+     bloom. Hover token is one step stronger for interactive cards/stats. */
+  --shadow-sm:
+    0 1px 3px rgba(16, 24, 40, 0.12),
+    0 8px 24px rgba(16, 24, 40, 0.14);
+  --shadow-sm-hover:
+    0 3px 8px rgba(16, 24, 40, 0.14),
+    0 14px 32px rgba(16, 24, 40, 0.18);
+  --shadow-md:
+    0 4px 12px rgba(16, 24, 40, 0.12),
+    0 20px 44px rgba(16, 24, 40, 0.18);
 
   --border: #e2e2dc;
   --border-strong: #c9c9c1;
@@ -135,6 +152,16 @@
     --surface-raised: #1c1f24;
     --surface-sunken: #121417;
     --surface-hover: #21252b;
+
+    --shadow-sm:
+      0 1px 3px rgba(0, 0, 0, 0.5),
+      0 8px 24px rgba(0, 0, 0, 0.55);
+    --shadow-sm-hover:
+      0 3px 8px rgba(0, 0, 0, 0.55),
+      0 14px 32px rgba(0, 0, 0, 0.65);
+    --shadow-md:
+      0 4px 12px rgba(0, 0, 0, 0.52),
+      0 20px 44px rgba(0, 0, 0, 0.68);
 
     --border: #2a2e35;
     --border-strong: #3d434c;

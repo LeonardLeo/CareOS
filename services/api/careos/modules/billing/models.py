@@ -18,7 +18,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Index, Numeric, Text
+from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, Numeric, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -49,6 +49,13 @@ class PayerContract(Base, PrimaryKeyMixin, TenantMixin, TimestampMixin):
 
 class Authorization(Base, PrimaryKeyMixin, TenantMixin, TimestampMixin):
     __tablename__ = "authorization"
+    __table_args__ = (
+        # Mirrors migration 0005, so `alembic check` compares like with like.
+        CheckConstraint(
+            "units_used >= 0 AND authorized_units >= 0",
+            name="ck_authorization_units_non_negative",
+        ),
+    )
 
     care_plan_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),

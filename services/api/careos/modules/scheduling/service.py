@@ -7,6 +7,7 @@ future bulk import.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -16,6 +17,7 @@ from dateutil.rrule import rrulestr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from careos.core.ratelimit import get_rate_limiter
 from careos.core.audit import AuditAction, record_audit
 from careos.core.errors import (
     ComplianceGateError,
@@ -48,6 +50,10 @@ PUBLICLY_FUNDED_PAYER_TYPES = frozenset({"medicaid_waiver", "medicare_advantage"
 #: Cap on visits materialized in a single call, so a malformed recurrence rule cannot
 #: generate an unbounded number of rows.
 MAX_GENERATED_VISITS = 500
+
+#: Volume abuse signal from `05_API_Specification.md` Section 9. Clock-in/out are never
+#: refused for this — the exception is how a human learns about it.
+ANOMALOUS_VOLUME_RULE = "evv.anomalous_volume"
 
 
 # --------------------------------------------------------------------------------------
@@ -619,6 +625,88 @@ async def build_visit_rule_context(
     }
 
 
+async def raise_evv_volume_anomaly(
+    session: AsyncSession,
+    *,
+    principal: Principal,
+    caregiver_id: uuid.UUID,
+    agency_id: uuid.UUID,
+    visit_id: uuid.UUID,
+) -> None:
+    """Open (or refresh) a compliance exception for anomalous EVV volume.
+
+    `05_API_Specification.md` Section 9 exempts clock-in and clock-out from throttling and
+    asks for abuse-detection heuristics instead. A metric and a log line are not enough: the
+    scheduler's default view is the exception queue (`09_UX_Design_and_User_Flows.md`
+    principle 3), and an anomaly that never appears there is one nobody works.
+
+    Never refuses the clock action. Deduped to one open exception per caregiver so a sustained
+    flood does not bury the queue.
+    """
+    # From the limiter's live policy, not from settings. The two are built from the same
+    # value at startup and are not the same object afterwards — the limiter is what actually
+    # decided this request was anomalous, and an exception quoting a different number from
+    # the log line it accompanies sends whoever is working the queue looking for a second
+    # threshold that does not exist.
+    ceiling = get_rate_limiter().policy.evv_anomaly_per_minute
+    caregiver = await session.get(Caregiver, caregiver_id)
+    who = caregiver.legal_name if caregiver is not None else str(caregiver_id)
+    message = (
+        f"{who} exceeded {ceiling} EVV clock actions in one minute — volume no caregiver "
+        "reaches by working a real schedule"
+    )
+    details = {
+        "visit_id": str(visit_id),
+        "per_minute_ceiling": ceiling,
+        "remediation": (
+            "Confirm the caregiver is not sharing credentials, replaying a stuck outbox in a "
+            "tight loop, or being impersonated. Clock-in and clock-out were not refused — "
+            "Section 9 forbids throttling them — so the EVV records still need review."
+        ),
+    }
+
+    open_exception = (
+        await session.execute(
+            select(ComplianceException).where(
+                ComplianceException.rule_key == ANOMALOUS_VOLUME_RULE,
+                ComplianceException.entity_type == "caregiver",
+                ComplianceException.entity_id == caregiver_id,
+                ComplianceException.resolved_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if open_exception is not None:
+        open_exception.message = message
+        open_exception.details = details
+        return
+
+    session.add(
+        ComplianceException(
+            agency_id=agency_id,
+            rule_key=ANOMALOUS_VOLUME_RULE,
+            severity=Severity.warning.value,
+            entity_type="caregiver",
+            entity_id=caregiver_id,
+            message=message,
+            details=details,
+        )
+    )
+    await record_audit(
+        session,
+        principal=principal,
+        agency_id=agency_id,
+        action=AuditAction.compliance_exception_raised,
+        entity_type="caregiver",
+        entity_id=caregiver_id,
+        after_state={
+            "rule_key": ANOMALOUS_VOLUME_RULE,
+            "severity": Severity.warning.value,
+            "visit_id": str(visit_id),
+        },
+    )
+
+
 async def evaluate_visit_compliance(
     session: AsyncSession,
     *,
@@ -699,6 +787,7 @@ def critical_findings(findings: Sequence[Finding]) -> list[Finding]:
 
 
 __all__ = [
+    "ANOMALOUS_VOLUME_RULE",
     "GenerationWindow",
     "assert_assignable",
     "assign_caregiver",
@@ -707,6 +796,7 @@ __all__ = [
     "clock_in",
     "clock_out",
     "critical_findings",
+    "raise_evv_volume_anomaly",
     "evaluate_visit_compliance",
     "generate_visits",
     "transmit_evv_record",

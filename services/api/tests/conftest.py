@@ -40,6 +40,9 @@ os.environ.setdefault("CAREOS_RATE_LIMIT_STANDARD_PER_MINUTE", "1000000")
 os.environ.setdefault("CAREOS_RATE_LIMIT_AUTH_PER_MINUTE", "1000000")
 os.environ.setdefault("CAREOS_RATE_LIMIT_AUTH_PER_IP_PER_MINUTE", "1000000")
 os.environ.setdefault("CAREOS_RATE_LIMIT_EVV_ANOMALY_PER_MINUTE", "1000000")
+# Sign-up is five an hour in production, which several tests in one session would exhaust.
+# `tests/test_rate_limits.py` tightens the live policy back down to prove the real ceiling.
+os.environ.setdefault("CAREOS_RATE_LIMIT_SIGNUP_PER_HOUR", "1000000")
 # In-process buckets for the suite: no Redis to stand up, no cross-run bleed through a shared
 # server, and a settable clock. The shared store has its own module, which talks to a real Redis
 # rather than to a fake — see `tests/test_rate_limit_redis.py`.
@@ -54,19 +57,36 @@ os.environ["CAREOS_PRIVILEGED_DATABASE_URL"] = (
 os.environ["CAREOS_MIGRATION_DATABASE_URL"] = (
     f"postgresql+asyncpg://{SUPERUSER}:{SUPERPASS}@{PG_HOST}:{PG_PORT}/{TEST_DB}"
 )
+# The CareOS operator console's own role. No BYPASSRLS, like `careos_app` — the platform
+# tests assert that from a live connection rather than trusting the bootstrap script.
+os.environ["CAREOS_PLATFORM_DATABASE_URL"] = (
+    f"postgresql+asyncpg://careos_platform:careos_platform@{PG_HOST}:{PG_PORT}/{TEST_DB}"
+)
 
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from careos.core.crypto import encrypt_field  # noqa: E402
-from careos.core.security import Principal, create_token, hash_password  # noqa: E402
+from careos.core.security import (  # noqa: E402
+    PlatformPrincipal,
+    Principal,
+    create_platform_token,
+    create_token,
+    hash_password,
+)
 from careos.db.session import (  # noqa: E402
     dispose_engines,
+    platform_session,
     privileged_session,
     tenant_session,
 )
 from careos.main import create_app  # noqa: E402
 from careos.modules.agency.models import Agency, AppUser, Role, UserStatus  # noqa: E402
+from careos.modules.platform.models import (  # noqa: E402
+    PlatformOperator,
+    PlatformOperatorStatus,
+    PlatformRole,
+)
 from careos.modules.credentialing.models import (  # noqa: E402
     Caregiver,
     EmploymentStatus,
@@ -184,10 +204,16 @@ def _reset_rate_limits() -> None:
 async def _clean_tables(database: None) -> AsyncIterator[None]:
     """Truncate tenant data between tests, leaving schema and reference data intact."""
     yield
-    from careos.db.models import RLS_TABLES
+    from careos.db.models import PLATFORM_TABLES, RLS_TABLES
 
-    # TRUNCATE runs as superuser: the app role deliberately cannot delete audit rows.
-    tables = ", ".join(f'"{t}"' for t in RLS_TABLES)
+    # The platform tables are global rather than tenant-scoped, so they are not in
+    # `RLS_TABLES` and would otherwise accumulate operators and access-log rows across the
+    # whole session — which is how one test's operator signs in during another's.
+    # Reference data stays: it is present before any tenant exists in production too.
+    #
+    # TRUNCATE runs as superuser: the app role deliberately cannot delete audit rows, and the
+    # platform role deliberately cannot delete its own access log.
+    tables = ", ".join(f'"{t}"' for t in (*RLS_TABLES, *PLATFORM_TABLES))
     _psql(f"TRUNCATE {tables} RESTART IDENTITY CASCADE", database=TEST_DB)
 
 
@@ -342,6 +368,73 @@ async def tenant_b(database: None) -> TenantFixture:
     return await _make_tenant("Beta Home Care")
 
 
+class PlatformFixture:
+    """A CareOS operator, and the handles a test needs to act as one."""
+
+    def __init__(self, operator_id: uuid.UUID, email: str, role: PlatformRole) -> None:
+        self.operator_id = operator_id
+        self.email = email
+        self.role = role
+
+    def principal(self) -> PlatformPrincipal:
+        return PlatformPrincipal(
+            operator_id=self.operator_id,
+            role=self.role,
+            issued_at=datetime.now(UTC),
+            mfa_satisfied=True,
+        )
+
+    def token(self, *, mfa_satisfied: bool = True) -> str:
+        return create_platform_token(
+            operator_id=self.operator_id,
+            role=self.role,
+            token_type="access",
+            mfa_satisfied=mfa_satisfied,
+        )
+
+    def headers(self, *, mfa_satisfied: bool = True) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.token(mfa_satisfied=mfa_satisfied)}"}
+
+
+async def make_operator(
+    role: PlatformRole = PlatformRole.platform_admin,
+    *,
+    password: str = "operator-password-that-is-long",
+    mfa_enrolled: bool = False,
+) -> PlatformFixture:
+    """Create a platform operator directly, bypassing the bootstrap script.
+
+    `mfa_enrolled` defaults to False and the fixture's tokens default to `mfa_satisfied=True`,
+    which sounds contradictory and is not: the flag on the row is what the *login* path reads,
+    and the claim in the token is what `requires_platform` reads. Tests of the enrolment gate
+    set them apart deliberately.
+    """
+    email = f"ops+{uuid.uuid4().hex[:8]}@careos.test"
+    async with platform_session() as session:
+        operator = PlatformOperator(
+            email=email,
+            display_name="Test Operator",
+            role=role,
+            password_hash=hash_password(password),
+            status=PlatformOperatorStatus.active,
+            mfa_enrolled=mfa_enrolled,
+        )
+        session.add(operator)
+        await session.flush()
+        operator_id = operator.id
+    return PlatformFixture(operator_id, email, role)
+
+
+@pytest.fixture
+async def platform_admin(database: None) -> PlatformFixture:
+    return await make_operator(PlatformRole.platform_admin)
+
+
+@pytest.fixture
+async def platform_support(database: None) -> PlatformFixture:
+    return await make_operator(PlatformRole.platform_support)
+
+
 @pytest.fixture
 async def client() -> AsyncIterator[AsyncClient]:
     app = create_app()
@@ -404,6 +497,8 @@ __all__ = [
     "EVVAggregatorRef",
     "EVVModel",
     "PayerServiceCodeRef",
+    "PlatformFixture",
     "TenantFixture",
     "make_client_with_plan",
+    "make_operator",
 ]

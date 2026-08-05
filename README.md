@@ -27,6 +27,7 @@ stubbed, and what has not been started — assessed against the milestone table 
 
 ```
 docs/                    The 13-document product and architecture set (source of truth)
+apps/site/               Public marketing site — static Next.js export, no server, no API call
 apps/admin-web/          Agency admin web app (Next.js 15, React 19, TypeScript)
 apps/caregiver-app/      Caregiver app — offline-first EVV (Vite, React 19, PWA)
   src/lib/               Outbox and sync engine; no React or DOM imports, so a
@@ -63,7 +64,7 @@ make up
 
 # Or locally
 make install
-make bootstrap-db     # creates the database and the careos_app / careos_auth roles
+make bootstrap-db     # creates the database and careos_app / careos_auth / careos_platform roles
 make migrate
 make seed
 make dev              # API at http://localhost:8000/docs
@@ -71,10 +72,30 @@ make worker           # the background job runner (EVV, webhooks, credential not
 
 # Admin web app (needs the API running)
 cd apps/admin-web && npm install && npm run dev   # http://localhost:3000
+#   Agency sign-in:        http://localhost:3000/login
+#   Self-serve sign-up:    http://localhost:3000/signup
+#   Platform console:      http://localhost:3000/platform/login
 
 # Caregiver app (needs the API running)
 cd apps/caregiver-app && npm install && npm run dev   # http://localhost:3001
+
+# Public site (needs nothing running)
+cd apps/site && npm install && npm run dev   # http://localhost:3002
 ```
+
+Copy `services/api/.env.example` to `services/api/.env` and point every database URL — including
+`CAREOS_PLATFORM_DATABASE_URL` — at the same Postgres you bootstrapped. On a machine that already
+has a native Postgres on 5432, copy the repo-root `.env.example` to `.env`, set
+`CAREOS_POSTGRES_PORT` to a free host port, and use that port in all four URLs; leaving only the
+platform URL on 5432 surfaces as a 500 on `/v1/platform/auth/login` rather than an obvious port
+conflict.
+
+The site's "Sign in" / "Set up your agency" links point at `NEXT_PUBLIC_APP_ORIGIN`, read at
+build time because the site is a static export. `apps/site/.env.development` sets it to the
+admin console above, so `npm run dev` links somewhere that answers; a build with nothing set
+keeps the deliberate `app.careos.example` placeholder rather than shipping a link to the
+reader's own machine. Override a build with `.env.production` or the build environment, and
+your own dev server with `.env.local`.
 
 The caregiver app's offline behaviour only exists in a production build — the service worker is
 not registered by the dev server — so test it with `npm run build && npm run preview`, then use
@@ -124,7 +145,8 @@ an English message in a query string renders in English no matter what the reade
 
 Screens: dashboard, scheduling board with gap queue and ranked suggestions (Flow A, the
 highest-frequency flow), recruiting funnel and applicant pipeline, credentialing renewal
-queue, and compliance review standing.
+queue, compliance review standing, self-serve agency sign-up (`/signup`), and the CareOS
+platform operator console (`/platform` — fleet health, suspend/reinstate, operators, audit).
 
 ### Information design
 

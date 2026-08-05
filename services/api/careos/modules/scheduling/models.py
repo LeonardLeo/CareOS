@@ -18,6 +18,7 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import (
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -136,6 +137,10 @@ class ScheduledVisit(Base, PrimaryKeyMixin, TenantMixin, TimestampMixin):
         ),
         Index("ix_scheduled_visit_agency_start", "agency_id", "scheduled_start"),
         Index("ix_scheduled_visit_caregiver_start", "caregiver_id", "scheduled_start"),
+        # Declared here as well as in migration 0003 because `alembic check` compares the
+        # models against the database: a constraint that exists only in a migration reads as
+        # one the schema is about to lose.
+        CheckConstraint("scheduled_end > scheduled_start", name="ck_scheduled_visit_end_after_start"),
     )
 
     care_plan_id: Mapped[uuid.UUID] = mapped_column(
@@ -185,6 +190,10 @@ class EVVRecord(Base, PrimaryKeyMixin, TenantMixin, TimestampMixin):
             "agency_id",
             "last_transmission_at",
             postgresql_where=text("transmission_status IN ('pending', 'transmitted')"),
+        ),
+        CheckConstraint(
+            "clock_out_time IS NULL OR clock_in_time IS NULL OR clock_out_time >= clock_in_time",
+            name="ck_evv_record_clock_order",
         ),
     )
 

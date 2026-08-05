@@ -27,7 +27,7 @@
 
 import { redirect } from "next/navigation";
 import { EnrolmentQr } from "@/components/qr";
-import { Card, ErrorNote, SeverityBadge } from "@/components/ui";
+import { Card, ErrorNote, InfoNote, SeverityBadge } from "@/components/ui";
 import { translatorFor } from "@/lib/i18n";
 import { getLocale } from "@/lib/locale";
 import { api } from "@/lib/api";
@@ -39,12 +39,17 @@ export const dynamic = "force-dynamic";
 export default async function SecurityPage({
   searchParams,
 }: {
-  searchParams: Promise<{ required?: string; done?: string; error?: string }>;
+  searchParams: Promise<{
+    required?: string;
+    done?: string;
+    error?: string;
+    welcome?: string;
+  }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
   const t = translatorFor(await getLocale());
-  const { required, done, error } = await searchParams;
+  const { required, done, error, welcome } = await searchParams;
 
   // Read, never minted. Starting enrolment is a POST to /api/mfa/start; this page only
   // renders what that POST produced. The first version called the API from here, which meant
@@ -66,11 +71,21 @@ export default async function SecurityPage({
         </div>
       </header>
 
-      {required && (
-        <div className="notice">
-          <SeverityBadge severity="critical">{t("mfaRequiredBadge")}</SeverityBadge>
-          <span>{t("mfaRequiredNote")}</span>
-        </div>
+      {/* Someone who has just signed up lands here rather than on a dashboard, because
+          `owner_admin` is an MFA-required role and the session they hold reaches enrolment
+          and nothing else. Arriving at a security screen with no explanation reads as an
+          error, so the first thing they see says what happened and what is left. Shown
+          instead of the bare requirement notice, not alongside it: two banners saying the
+          same thing is how people learn to skip both. */}
+      {welcome ? (
+        <InfoNote title={t("welcomeTitle")} detail={t("welcomeBody")} />
+      ) : (
+        required && (
+          <div className="notice">
+            <SeverityBadge severity="critical">{t("mfaRequiredBadge")}</SeverityBadge>
+            <span>{t("mfaRequiredNote")}</span>
+          </div>
+        )
       )}
       {done && (
         <div className="notice">

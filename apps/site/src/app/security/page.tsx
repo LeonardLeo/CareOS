@@ -59,6 +59,21 @@ const CONTROLS = [
     ),
   },
   {
+    term: "What CareOS staff can see",
+    detail: (
+      <>
+        Our own operators sign in to a separate console, as a separate identity, over a
+        separate database role — one that holds no permission on any table containing client,
+        caregiver, or visit records. What it can read is a single view of counts and statuses
+        per agency: how many caregivers are active, how many EVV records the state has
+        rejected, how many credentials have lapsed. A query for a client row from that console
+        does not return an empty result; it is refused by the database. Every screen an
+        operator opens is recorded, and suspending an agency writes into that agency&rsquo;s
+        own audit trail with the reason given.
+      </>
+    ),
+  },
+  {
     term: "An audit trail that cannot be separated from the change",
     detail: (
       <>
@@ -133,6 +148,10 @@ const OPEN = [
   [
     "Subprocessor BAAs",
     "None are needed yet because no PHI-touching vendor is integrated. That changes the moment the first EVV aggregator is connected, and the countersigned agreement comes first.",
+  ],
+  [
+    "Email verification on sign-up",
+    "Self-serve sign-up creates a tenant without confirming the address first. The consequence is bounded — an unverified address cannot reach any other agency's data, and the account is one nobody can recover — but it also means the sign-up form will tell you an address is already registered, which is an account-enumeration exposure we have rate-limited rather than removed. Verification lands with the managed identity provider.",
   ],
 ];
 

@@ -16,7 +16,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -32,7 +32,20 @@ class ConsentMethod(enum.StrEnum):
 
 class AmbientSessionMetadata(Base, PrimaryKeyMixin, TenantMixin, TimestampMixin):
     __tablename__ = "ambient_session_metadata"
-    __table_args__ = (Index("ix_ambient_session_metadata_visit", "scheduled_visit_id"),)
+    __table_args__ = (
+        Index("ix_ambient_session_metadata_visit", "scheduled_visit_id"),
+        # Both mirror migration 0004. Declared on the model as well so `alembic check` sees
+        # the schema the database actually has.
+        CheckConstraint(
+            "(consent_captured IS FALSE) OR "
+            "(consent_method IS NOT NULL AND consent_captured_at IS NOT NULL)",
+            name="ck_ambient_consent_requires_method_and_time",
+        ),
+        CheckConstraint(
+            "(audio_retained IS FALSE) OR (consent_captured IS TRUE)",
+            name="ck_ambient_audio_requires_consent",
+        ),
+    )
 
     scheduled_visit_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
@@ -57,7 +70,13 @@ class AmbientSessionMetadata(Base, PrimaryKeyMixin, TenantMixin, TimestampMixin)
 
 class VisitNote(Base, PrimaryKeyMixin, TenantMixin, TimestampMixin):
     __tablename__ = "visit_note"
-    __table_args__ = (Index("ix_visit_note_visit", "scheduled_visit_id"),)
+    __table_args__ = (
+        Index("ix_visit_note_visit", "scheduled_visit_id"),
+        CheckConstraint(
+            "supervisor_reviewed_at IS NULL OR caregiver_signed_at IS NOT NULL",
+            name="ck_visit_note_supervisor_after_caregiver",
+        ),
+    )
 
     scheduled_visit_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),

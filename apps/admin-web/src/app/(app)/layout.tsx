@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AppNav, type AppNavGroup } from "@/components/app-nav";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { api } from "@/lib/api";
 import { type StringKey, roleLabel, translatorFor } from "@/lib/i18n";
@@ -9,20 +9,71 @@ import { canSee, getSession } from "@/lib/session";
 // Labels are string *keys*, resolved per request. Holding the English here and translating at
 // the call site would put one language in the structure and the other in a lookup, which is
 // how a nav ends up half-translated.
-const NAV = [
-  { href: "/dashboard", labelKey: "navDashboard", area: "dashboard" },
-  { href: "/scheduling", labelKey: "navScheduling", area: "scheduling" },
-  { href: "/clients", labelKey: "navClients", area: "scheduling" },
-  { href: "/exceptions", labelKey: "navExceptions", area: "exceptions" },
-  { href: "/recruiting", labelKey: "navRecruiting", area: "recruiting" },
-  { href: "/credentialing", labelKey: "navCredentialing", area: "credentialing" },
-  { href: "/compliance", labelKey: "navCompliance", area: "compliance" },
-  { href: "/users", labelKey: "navUsers", area: "users" },
-  // Reachable by every role, unlike the rest of this list: MFA is required for three roles
-  // and available to all of them, and a user held on the enrolment screen must be able to
-  // navigate to it.
-  { href: "/security", labelKey: "navSecurity", area: "security" },
-] as const satisfies readonly { href: string; labelKey: StringKey; area: string }[];
+//
+// Groups match how an owner scans the console: where am I, what needs a person today, who
+// works here, who can sign in. A flat list of nine links buried the counts that used to make
+// the rail useful at a glance.
+const NAV_GROUPS = [
+  {
+    labelKey: "navGroupOverview",
+    items: [{ href: "/dashboard", labelKey: "navDashboard", area: "dashboard" }],
+  },
+  {
+    labelKey: "navGroupOperations",
+    items: [
+      {
+        href: "/scheduling",
+        labelKey: "navScheduling",
+        area: "scheduling",
+        countKey: "gaps" as const,
+      },
+      { href: "/clients", labelKey: "navClients", area: "scheduling" },
+      {
+        href: "/exceptions",
+        labelKey: "navExceptions",
+        area: "exceptions",
+        countKey: "exceptions" as const,
+      },
+    ],
+  },
+  {
+    labelKey: "navGroupWorkforce",
+    items: [
+      { href: "/recruiting", labelKey: "navRecruiting", area: "recruiting" },
+      {
+        href: "/credentialing",
+        labelKey: "navCredentialing",
+        area: "credentialing",
+        countKey: "expiredCredentials" as const,
+      },
+      { href: "/compliance", labelKey: "navCompliance", area: "compliance" },
+    ],
+  },
+  {
+    labelKey: "navGroupAdmin",
+    items: [
+      { href: "/users", labelKey: "navUsers", area: "users" },
+      // Reachable by every role, unlike the rest of this list: MFA is required for three roles
+      // and available to all of them, and a user held on the enrolment screen must be able to
+      // navigate to it.
+      { href: "/security", labelKey: "navSecurity", area: "security" },
+    ],
+  },
+] as const satisfies readonly {
+  labelKey: StringKey;
+  items: readonly {
+    href: string;
+    labelKey: StringKey;
+    area: string;
+    countKey?: "gaps" | "exceptions" | "expiredCredentials";
+  }[];
+}[];
+
+type NavCounts = {
+  gaps: number;
+  exceptions: number;
+  expiredCredentials: number;
+};
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -31,18 +82,51 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const locale = await getLocale();
   const t = translatorFor(locale);
 
-  // Hiding a link the role cannot use is a usability courtesy only. The real boundary is the
-  // API's RBAC plus row-level security — this layout is not a security control.
-  const links = NAV.filter((item) => canSee(item.area, session.role));
-
   // An unattended queue should be visible without opening it. Best-effort: a nav badge is
   // never worth failing the whole layout over, so a lookup failure just omits the count.
-  let openExceptions = 0;
-  try {
-    openExceptions = (await api.exceptionSummary(session.token)).total_open;
-  } catch {
-    openExceptions = 0;
-  }
+  const counts: NavCounts = { gaps: 0, exceptions: 0, expiredCredentials: 0 };
+  await Promise.all([
+    api
+      .exceptionSummary(session.token)
+      .then((summary) => {
+        counts.exceptions = summary.total_open;
+      })
+      .catch(() => {
+        /* omit */
+      }),
+    api
+      .gaps(session.token, 72)
+      .then((gaps) => {
+        counts.gaps = gaps.length;
+      })
+      .catch(() => {
+        /* omit */
+      }),
+    api
+      .credentialExpirations(session.token, 60)
+      .then((rows) => {
+        counts.expiredCredentials = rows.filter((row) => row.already_expired).length;
+      })
+      .catch(() => {
+        /* omit */
+      }),
+  ]);
+
+  // Hiding a link the role cannot use is a usability courtesy only. The real boundary is the
+  // API's RBAC plus row-level security — this layout is not a security control.
+  const groups: AppNavGroup[] = NAV_GROUPS.map((group) => ({
+    label: t(group.labelKey),
+    items: group.items
+      .filter((item) => canSee(item.area, session.role))
+      .map((item) => {
+        const countKey = "countKey" in item ? item.countKey : undefined;
+        return {
+          href: item.href,
+          label: t(item.labelKey),
+          count: countKey ? counts[countKey] : undefined,
+        };
+      }),
+  })).filter((group) => group.items.length > 0);
 
   return (
     <div className="shell">
@@ -63,20 +147,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </span>
         </div>
 
-        <nav className="nav" aria-label={t("navMain")}>
-          {links.map((item) => (
-            <Link key={item.href} className="nav__link" href={item.href}>
-              <span>{t(item.labelKey)}</span>
-              {item.href === "/exceptions" && openExceptions > 0 && (
-                <span className="nav__count">{openExceptions}</span>
-              )}
-            </Link>
-          ))}
-        </nav>
+        <AppNav groups={groups} ariaLabel={t("navMain")} />
 
         <div className="sidebar__footer">
           <div className="sidebar__role">{roleLabel(locale, session.role)}</div>
-          <LanguageSwitcher locale={locale} returnTo="/dashboard" />
+          <LanguageSwitcher locale={locale} />
           <form method="post" action="/api/auth/logout">
             <button className="button button--ghost button--small" type="submit">
               {t("signOut")}

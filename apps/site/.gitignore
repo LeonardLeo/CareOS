@@ -1,5 +1,7 @@
 /.next/
 /out/
 /node_modules/
+# Per-developer overrides of .env.development. Next reads these and they describe one machine.
+.env*.local
 next-env.d.ts
 tsconfig.tsbuildinfo

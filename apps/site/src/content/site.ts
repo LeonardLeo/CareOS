@@ -20,7 +20,54 @@ export const SITE_NAME = "CareOS";
 export const SITE_DOMAIN = "careos.example";
 
 export const SITE_ORIGIN = `https://${SITE_DOMAIN}`;
-export const SIGN_IN_URL = `https://app.${SITE_DOMAIN}/login`;
+
+/**
+ * Where the admin console lives, which is not where this site lives.
+ *
+ * The default is the same deliberate placeholder as the domain above, for the same reason: no
+ * environment is deployed (`docs/BUILD_STATUS.md`), so a build with nothing configured should
+ * produce a link that visibly fails rather than one pointing at the reader's own machine.
+ * `NEXT_PUBLIC_APP_ORIGIN` overrides it, and `.env.development` sets it to the admin console's
+ * dev port so `npm run dev` links somewhere that answers.
+ *
+ * Read at build time and inlined, because this site is a static export — there is no server to
+ * consult at request time, and the value is baked into every page that carries a sign-in link.
+ * A malformed value therefore has to fail the build: shipped, it would be a dead link on every
+ * page, and the whole point of the placeholder is that a wrong destination is loud.
+ */
+function resolveAppOrigin(): string {
+  const configured = process.env.NEXT_PUBLIC_APP_ORIGIN?.trim();
+  if (!configured) return `https://app.${SITE_DOMAIN}`;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(configured);
+  } catch {
+    throw new Error(`NEXT_PUBLIC_APP_ORIGIN is not an absolute URL: ${configured}`);
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error(`NEXT_PUBLIC_APP_ORIGIN must be http or https: ${configured}`);
+  }
+  // Only the origin survives. A trailing slash or a stray path would otherwise reach the
+  // consumers below as `https://app.example//login`, which resolves on some servers and 404s
+  // on others — a difference nobody wants to discover in production.
+  return parsed.origin;
+}
+
+export const APP_ORIGIN = resolveAppOrigin();
+export const SIGN_IN_URL = `${APP_ORIGIN}/login`;
+
+/**
+ * Self-serve sign-up, which lives in the admin console rather than here.
+ *
+ * A form on this site would have to call the API from the browser, and this site is a static
+ * export with no server and no third-party request of any kind — that property is what lets
+ * it stay up when the API is down and say so. The console is server-rendered and already
+ * keeps the access token in an httpOnly cookie that page JavaScript cannot read, which is the
+ * only place a credential exchange belongs in this product. So the site links, and does not
+ * collect.
+ */
+export const SIGN_UP_URL = `${APP_ORIGIN}/signup`;
 export const CONTACT_EMAIL = `hello@${SITE_DOMAIN}`;
 export const SECURITY_EMAIL = `security@${SITE_DOMAIN}`;
 export const PRIVACY_EMAIL = `privacy@${SITE_DOMAIN}`;
@@ -42,6 +89,7 @@ export const FOOTER_GROUPS = [
     links: [
       { href: "/product/", label: "What we build" },
       { href: "/security/", label: "Security & compliance" },
+      { href: SIGN_UP_URL, label: "Set up your agency" },
       { href: SIGN_IN_URL, label: "Sign in" },
     ],
   },

@@ -3,6 +3,13 @@
 # Postgres and Redis only, plus the API. Nothing here talks to a real EVV aggregator or
 # clearinghouse — the loopback EVV adapter handles that locally, and the registry refuses
 # to use it when CAREOS_ENVIRONMENT=production.
+#
+# Every *published* port is overridable from a repo-root `.env`, defaulting to the documented
+# one. A developer machine that already runs Postgres on 5432 or Grafana on 3000 otherwise has
+# no way to bring this stack up except by stopping the other thing — and on Windows the
+# collision is silent rather than loud: Docker keeps the IPv6 bind, the incumbent keeps IPv4,
+# and `localhost` reaches whichever the resolver prefers. Container-to-container addresses are
+# untouched, so nothing inside the network depends on which host port was chosen.
 
 services:
   postgres:
@@ -12,11 +19,12 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: careos
     ports:
-      - "5432:5432"
+      - "${CAREOS_POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Creates the careos_app / careos_auth roles on first boot. Postgres runs everything
-      # in this directory once, when the data volume is empty.
+      # Creates careos_app / careos_auth / careos_platform / careos_platform_views on first
+      # boot. Postgres runs everything in this directory once, when the data volume is empty.
+      # Re-run the SQL by hand against an existing volume if those roles were added later.
       - ./services/api/scripts/bootstrap_db.sql:/docker-entrypoint-initdb.d/10-bootstrap.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d careos"]
@@ -27,7 +35,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${CAREOS_REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -46,6 +54,7 @@ services:
       CAREOS_ENVIRONMENT: local
       CAREOS_DATABASE_URL: postgresql+asyncpg://careos_app:careos_app@postgres:5432/careos
       CAREOS_PRIVILEGED_DATABASE_URL: postgresql+asyncpg://careos_auth:careos_auth@postgres:5432/careos
+      CAREOS_PLATFORM_DATABASE_URL: postgresql+asyncpg://careos_platform:careos_platform@postgres:5432/careos
       CAREOS_MIGRATION_DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/careos
       CAREOS_REDIS_URL: redis://redis:6379/0
       # Compose runs one instance, so memory would be correct here — set to redis anyway so the
@@ -57,7 +66,7 @@ services:
       CAREOS_JWT_SECRET: dev-only-insecure-secret-change-me
       CAREOS_EVV_USE_SANDBOX: "true"
     ports:
-      - "8000:8000"
+      - "${CAREOS_API_PORT:-8000}:8000"
     command: >
       sh -c "alembic upgrade head &&
              python -m careos.scripts.seed_reference_data &&
@@ -84,6 +93,7 @@ services:
       CAREOS_ENVIRONMENT: local
       CAREOS_DATABASE_URL: postgresql+asyncpg://careos_app:careos_app@postgres:5432/careos
       CAREOS_PRIVILEGED_DATABASE_URL: postgresql+asyncpg://careos_auth:careos_auth@postgres:5432/careos
+      CAREOS_PLATFORM_DATABASE_URL: postgresql+asyncpg://careos_platform:careos_platform@postgres:5432/careos
       CAREOS_REDIS_URL: redis://redis:6379/0
       CAREOS_RATE_LIMIT_BACKEND: redis
       CAREOS_JWT_SECRET: dev-only-insecure-secret-change-me
@@ -114,7 +124,7 @@ services:
       # Short retention: this stack exists to prove the wiring, not to keep history.
       - --storage.tsdb.retention.time=6h
     ports:
-      - "9090:9090"
+      - "${CAREOS_PROMETHEUS_PORT:-9090}:9090"
 
   alertmanager:
     image: prom/alertmanager:v0.28.0
@@ -123,7 +133,7 @@ services:
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
     ports:
-      - "9093:9093"
+      - "${CAREOS_ALERTMANAGER_PORT:-9093}:9093"
 
   alert-sink:
     # Where `page` and `ticket` land locally. A real deployment replaces this with PagerDuty
@@ -134,7 +144,7 @@ services:
       - ./ops/alert-sink/sink.py:/sink.py:ro
     command: ["python", "-u", "/sink.py"]
     ports:
-      - "9099:9099"
+      - "${CAREOS_ALERT_SINK_PORT:-9099}:9099"
 
 volumes:
   postgres_data:

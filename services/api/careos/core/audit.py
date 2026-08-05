@@ -31,6 +31,14 @@ class AuditAction(enum.StrEnum):
 
     agency_created = "agency.created"
     agency_updated = "agency.updated"
+    #: A CareOS platform operator taking this agency offline, or putting it back. Written
+    #: into the agency's *own* trail as well as the platform's, because the agency has to be
+    #: able to see in its own records that this happened and what reason was given — an
+    #: action taken on a tenant from outside it is exactly the one that must not be invisible
+    #: from inside. `actor_user_id` is null: the actor is not one of this agency's users, and
+    #: the details carry the operator's identity instead.
+    agency_suspended = "agency.suspended"
+    agency_reinstated = "agency.reinstated"
     user_invited = "user.invited"
     user_role_changed = "user.role_changed"
     user_login_succeeded = "user.login_succeeded"

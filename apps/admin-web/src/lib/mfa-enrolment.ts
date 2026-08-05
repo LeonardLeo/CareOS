@@ -24,7 +24,6 @@
 
 import { cookies } from "next/headers";
 
-const PENDING_COOKIE = "careos_mfa_pending";
 const PENDING_MAX_AGE_SECONDS = 15 * 60;
 
 export interface PendingEnrolment {
@@ -33,37 +32,62 @@ export interface PendingEnrolment {
   recoveryCodes: string[];
 }
 
-export async function setPendingEnrolment(pending: PendingEnrolment): Promise<void> {
-  const store = await cookies();
-  store.set(PENDING_COOKIE, JSON.stringify(pending), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: PENDING_MAX_AGE_SECONDS,
-  });
+/**
+ * The three operations, bound to one cookie.
+ *
+ * Two enrolments can be in flight in one browser — an agency user's and a CareOS operator's
+ * — and they must not overwrite each other's secret. Rather than a second copy of this
+ * module with a different constant, the cookie is a parameter and each surface names its
+ * own. The operator's is scoped to `/platform` for the same reason its session cookie is.
+ */
+function enrolmentStore(name: string, path: string) {
+  return {
+    async set(pending: PendingEnrolment): Promise<void> {
+      const store = await cookies();
+      store.set(name, JSON.stringify(pending), {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path,
+        maxAge: PENDING_MAX_AGE_SECONDS,
+      });
+    },
+
+    async get(): Promise<PendingEnrolment | null> {
+      const store = await cookies();
+      const raw = store.get(name)?.value;
+      if (!raw) return null;
+      try {
+        const parsed = JSON.parse(raw) as Partial<PendingEnrolment>;
+        if (!parsed.secret || !parsed.otpauthUri || !Array.isArray(parsed.recoveryCodes)) {
+          return null;
+        }
+        return {
+          secret: parsed.secret,
+          otpauthUri: parsed.otpauthUri,
+          recoveryCodes: parsed.recoveryCodes,
+        };
+      } catch {
+        // A malformed cookie is treated as no enrolment in progress: the user starts again
+        // and gets a fresh secret, which is the same outcome as it having expired.
+        return null;
+      }
+    },
+
+    async clear(): Promise<void> {
+      const store = await cookies();
+      store.delete({ name, path });
+    },
+  };
 }
 
-export async function getPendingEnrolment(): Promise<PendingEnrolment | null> {
-  const store = await cookies();
-  const raw = store.get(PENDING_COOKIE)?.value;
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as Partial<PendingEnrolment>;
-    if (!parsed.secret || !parsed.otpauthUri || !Array.isArray(parsed.recoveryCodes)) return null;
-    return {
-      secret: parsed.secret,
-      otpauthUri: parsed.otpauthUri,
-      recoveryCodes: parsed.recoveryCodes,
-    };
-  } catch {
-    // A malformed cookie is treated as no enrolment in progress: the user starts again and
-    // gets a fresh secret, which is the same outcome as it having expired.
-    return null;
-  }
-}
+const tenantEnrolment = enrolmentStore("careos_mfa_pending", "/");
+const platformEnrolment = enrolmentStore("careos_platform_mfa_pending", "/platform");
 
-export async function clearPendingEnrolment(): Promise<void> {
-  const store = await cookies();
-  store.delete(PENDING_COOKIE);
-}
+export const setPendingEnrolment = tenantEnrolment.set;
+export const getPendingEnrolment = tenantEnrolment.get;
+export const clearPendingEnrolment = tenantEnrolment.clear;
+
+export const setPendingPlatformEnrolment = platformEnrolment.set;
+export const getPendingPlatformEnrolment = platformEnrolment.get;
+export const clearPendingPlatformEnrolment = platformEnrolment.clear;

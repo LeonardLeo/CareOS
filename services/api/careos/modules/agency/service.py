@@ -12,23 +12,23 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from careos.core import mfa
+from careos.config import get_settings
+from careos.core import second_factor
 from careos.core.audit import AuditAction, record_audit
-from careos.core.crypto import decrypt_field, encrypt_field
+from careos.core.crypto import encrypt_field
 from careos.core.errors import (
     AccountInactiveError,
+    AgencySuspendedError,
     AuthenticationError,
     ConflictError,
-    MFAInvalidCodeError,
-    MFARequiredError,
     PermissionDeniedError,
-    ValidationError,
 )
 from careos.core.security import Principal, create_token, hash_password, verify_password
 from careos.db.session import tenant_session
 from careos.modules.agency.models import (
     MFA_REQUIRED_ROLES,
     Agency,
+    AgencyStatus,
     AppUser,
     Role,
     UserStatus,
@@ -128,7 +128,38 @@ async def verify_credentials(session: AsyncSession, *, email: str, password: str
         raise AccountInactiveError(
             "This account has been disabled. Contact your agency administrator."
         )
+    await assert_agency_usable(session, agency_id=user.agency_id)
     return user
+
+
+async def assert_agency_usable(session: AsyncSession, *, agency_id: uuid.UUID) -> None:
+    """Refuse if CareOS has suspended this tenant.
+
+    Its own function because three paths need it and they run on two different pools: login
+    and refresh on the privileged one, and — through
+    `careos.api.deps.enforce_session_revocation` — every authenticated request on the tenant
+    one. Missing any of the three leaves a hole of a different shape: no login check and a
+    suspended agency's staff sign in as normal; no refresh check and they keep a rolling
+    session for a fortnight; no per-request check and every token already issued works until
+    it expires.
+
+    Checked after the password on the login path, so a suspension is disclosed only to
+    somebody who already holds valid credentials for the agency.
+    """
+    row = (
+        await session.execute(
+            select(Agency.status, Agency.suspended_reason).where(Agency.id == agency_id)
+        )
+    ).first()
+    if row is None:
+        # RLS hid the row, or the agency is gone. Either way there is no usable tenant here.
+        raise AuthenticationError("This account is no longer active")
+    status, reason = row
+    if status is AgencyStatus.suspended:
+        raise AgencySuspendedError(
+            "This agency's CareOS access has been suspended. Contact CareOS support.",
+            details={"reason": reason} if reason else {},
+        )
 
 
 async def complete_login(
@@ -176,6 +207,25 @@ async def record_failed_login(session: AsyncSession, *, email: str) -> None:
         )
 
 
+def mfa_satisfied_for(user: AppUser) -> bool:
+    """Whether a session minted for this user meets the MFA requirement that applies to it.
+
+    Three ways to meet it, and the third is the one easy to leave out: the user has enrolled;
+    the role was never required to (`MFA_REQUIRED_ROLES`); or this deployment does not enforce
+    the requirement. `CAREOS_MFA_REQUIRED` governs whether an unenrolled privileged user is
+    confined to the enrolment endpoints, so it has to govern the claim that says they are —
+    otherwise a token issued with enforcement off still carries `mfa_pending`, and a client
+    that routes on the claim sends the user to an enrolment screen this API would have let them
+    walk straight past. The admin console does exactly that.
+
+    Shared by the login and refresh paths rather than written out at each. The two disagreeing
+    is how a refresh quietly becomes a privilege change.
+    """
+    if user.mfa_enrolled or user.role not in MFA_REQUIRED_ROLES:
+        return True
+    return not get_settings().mfa_required
+
+
 def issue_tokens(user: AppUser, caregiver_id: uuid.UUID | None) -> tuple[str, str]:
     """Mint a fresh pair for a user whose identity is already established (the refresh path).
 
@@ -185,7 +235,7 @@ def issue_tokens(user: AppUser, caregiver_id: uuid.UUID | None) -> tuple[str, st
     endpoint that never asks for a code — and a user who enrolled on another device would stay
     locked to the enrolment endpoints until their refresh token expired.
     """
-    mfa_satisfied = user.mfa_enrolled or user.role not in MFA_REQUIRED_ROLES
+    mfa_satisfied = mfa_satisfied_for(user)
     access = create_token(
         user_id=user.id,
         agency_id=user.agency_id,
@@ -424,21 +474,15 @@ async def begin_mfa_enrolment(
     The proof goes through the same path a login does, so a TOTP code is spent against the
     replay counter and a recovery code is consumed. Re-enrolling therefore costs one of them,
     which is correct: it is an authentication.
+
+    The mechanics live in `careos.core.second_factor`, shared with the platform operator
+    console. Two copies of "what happens to these five columns" would eventually disagree
+    about one of the properties above, and each of them took a defect to arrive at.
     """
     if user.mfa_enrolled:
         assert_mfa_satisfied(user, code=current_code)
 
-    secret = mfa.generate_secret()
-    recovery_codes = mfa.generate_recovery_codes()
-
-    user.mfa_secret_encrypted = encrypt_field(secret)
-    # Hashed with the password hasher, because each of these is a credential that skips the
-    # second factor entirely. Normalized first so the stored hash matches what a person types.
-    user.mfa_recovery_hashes = [
-        hash_password(mfa.normalize_recovery_code(code)) for code in recovery_codes
-    ]
-    user.mfa_last_counter = None
-    user.mfa_enrolled = False
+    secret, uri, recovery_codes = second_factor.issue(user, account=user.email)
     await session.flush()
 
     await record_audit(
@@ -451,25 +495,14 @@ async def begin_mfa_enrolment(
         # No secret, no codes. An audit log is read by more people than this response is.
         after_state={"recovery_codes_issued": len(recovery_codes)},
     )
-    return secret, mfa.provisioning_uri(secret, account=user.email), recovery_codes
+    return secret, uri, recovery_codes
 
 
 async def confirm_mfa_enrolment(
     session: AsyncSession, *, principal: Principal, user: AppUser, code: str
 ) -> AppUser:
     """Finish enrolment by proving the user can produce a code."""
-    secret = decrypt_field(user.mfa_secret_encrypted)
-    if secret is None:
-        raise ValidationError(
-            "Start enrolment before confirming it.", details={"user_id": str(user.id)}
-        )
-
-    counter = mfa.verify_code(secret, code, last_counter=user.mfa_last_counter)
-    if counter is None:
-        raise MFAInvalidCodeError("That code is not valid. Check your authenticator app's clock.")
-
-    user.mfa_enrolled = True
-    user.mfa_last_counter = counter
+    second_factor.confirm(user, code)
     await session.flush()
 
     await record_audit(
@@ -484,51 +517,12 @@ async def confirm_mfa_enrolment(
     return user
 
 
-def _consume_recovery_code(user: AppUser, code: str) -> bool:
-    """Spend one recovery code, or return False.
-
-    Single-use is the whole point: a code that still works after being used is a permanent
-    second password written on a piece of paper. Verified against every stored hash rather
-    than a lookup, because they are hashed — which is why they cost a linear scan of ten.
-    """
-    supplied = mfa.normalize_recovery_code(code)
-    remaining = list(user.mfa_recovery_hashes or [])
-    for stored in remaining:
-        if verify_password(supplied, stored):
-            remaining.remove(stored)
-            # Reassigned rather than mutated in place: SQLAlchemy does not track mutation of a
-            # plain JSONB list, so `remaining.remove(...)` alone would leave the code usable
-            # forever and nothing would look wrong.
-            user.mfa_recovery_hashes = remaining
-            return True
-    return False
-
-
 def assert_mfa_satisfied(user: AppUser, *, code: str | None) -> None:
     """Check the second factor at login, or raise.
 
-    Called after the password verifies, so every branch here is reachable only by someone who
-    already holds valid credentials — which is what makes saying "the code is wrong" safe.
+    A named wrapper rather than a direct call to `careos.core.second_factor.assert_satisfied`,
+    because "the second factor for an agency user" is the concept the auth router and the
+    re-enrolment guard are written in terms of, and because the platform console's equivalent
+    reaches the same shared implementation from its own module.
     """
-    if not user.mfa_enrolled:
-        return
-
-    secret = decrypt_field(user.mfa_secret_encrypted)
-    if secret is None:
-        # Enrolled with no secret should be impossible. Failing closed rather than waving it
-        # through: the alternative is that a corrupted row silently downgrades an account to
-        # single-factor.
-        raise MFARequiredError("Multi-factor authentication is not usable on this account.")
-
-    if not code:
-        raise MFARequiredError("Enter the code from your authenticator app.")
-
-    counter = mfa.verify_code(secret, code, last_counter=user.mfa_last_counter)
-    if counter is not None:
-        user.mfa_last_counter = counter
-        return
-
-    if _consume_recovery_code(user, code):
-        return
-
-    raise MFAInvalidCodeError("That code is not valid.")
+    second_factor.assert_satisfied(user, code=code)

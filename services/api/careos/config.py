@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     privileged_database_url: str = (
         "postgresql+asyncpg://careos_auth:careos_auth@localhost:5432/careos"
     )
+    # The CareOS platform console. Holds no BYPASSRLS: its cross-tenant reach is one SELECT
+    # grant on one aggregate view of counts, plus a column-scoped grant on `agency` for
+    # suspension. See careos/db/rls.py and careos/modules/platform/models.py.
+    platform_database_url: str = (
+        "postgresql+asyncpg://careos_platform:careos_platform@localhost:5432/careos"
+    )
     # Owner/DDL connection, used by migrations only.
     migration_database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/careos"
     db_echo: bool = False
@@ -51,9 +57,20 @@ class Settings(BaseSettings):
     #: Auth attempts per minute from one address across all accounts, so credential spraying
     #: across many emails is limited even though each account stays under its own ceiling.
     rate_limit_auth_per_ip_per_minute: int = 30
-    #: Clock-ins/outs per minute from one caregiver above which the volume is logged as
-    #: anomalous. Never throttles — Section 9 forbids that — it only makes abuse visible.
+    #: Clock-ins/outs per minute from one caregiver above which the volume is treated as
+    #: anomalous. Never throttles — Section 9 forbids that — but opens a compliance exception
+    #: and increments the anomaly counter so a scheduler sees it in the queue, not only in logs.
     rate_limit_evv_anomaly_per_minute: int = 30
+    #: Self-serve sign-ups per hour from one address.
+    #:
+    #: Its own tier rather than sharing the auth one, because the two are limiting different
+    #: things over different periods. A sign-in ceiling is about guessing: ten a minute is
+    #: generous for a person and useless to an attacker. A sign-up ceiling is about tenant
+    #: creation: each accepted request writes an agency and a user that nothing garbage
+    #: collects, and there is no honest reason for one address to start five businesses in an
+    #: hour. Per hour, not per minute, because a spammer paced at one a minute would sit under
+    #: any per-minute limit forever and still create 1,440 tenants a day.
+    rate_limit_signup_per_hour: int = 5
 
     # --- Multi-factor authentication -----------------------------------------
     #: Whether a user in an MFA-required role (`MFA_REQUIRED_ROLES`) is held to it.

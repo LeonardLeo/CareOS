@@ -27,16 +27,24 @@ from careos.core.errors import (
     MFAEnrolmentRequiredError,
     PermissionDeniedError,
 )
-from careos.core.security import Principal
+from careos.core.security import Principal, PlatformPrincipal
 from careos.modules.agency.models import Role
+from careos.modules.platform.models import PLATFORM_READ_ONLY_ROLES, PlatformRole
 
 #: Attribute stamped on dependency callables so startup validation can find them.
 _ROLES_ATTR = "_careos_required_roles"
 _PUBLIC_ATTR = "_careos_public_route"
+_PLATFORM_ROLES_ATTR = "_careos_required_platform_roles"
 
 #: Read-only across the whole tenant, for compliance review
 #: (`08_Security_Architecture.md` Section 1). Enforced by rejecting mutating methods.
 READ_ONLY_ROLES: frozenset[Role] = frozenset({Role.auditor})
+
+#: Prefix used in `route_access_map` for platform roles, so the matrix cannot be read as
+#: though a CareOS operator were a seventh tenant role. They are different principals on
+#: different tables reached through a different database role, and the control evidence
+#: should say so.
+PLATFORM_ACCESS_PREFIX = "platform:"
 
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
@@ -46,6 +54,18 @@ def get_principal(request: Request) -> Principal:
     principal = getattr(request.state, "principal", None)
     if principal is None:
         raise AuthenticationError("Authentication required")
+    return principal
+
+
+def get_platform_principal(request: Request) -> PlatformPrincipal:
+    """Pull the PlatformPrincipal the auth middleware attached to this request.
+
+    Separate state attribute from `principal`, so a tenant handler asking for a principal
+    can never be handed an operator and vice versa. The middleware sets exactly one of them.
+    """
+    principal = getattr(request.state, "platform_principal", None)
+    if principal is None:
+        raise AuthenticationError("Platform authentication required")
     return principal
 
 
@@ -92,6 +112,62 @@ def requires(*roles: Role, mfa_exempt: bool = False) -> Callable[..., Principal]
         return principal
 
     setattr(_dependency, _ROLES_ATTR, allowed)
+    return _dependency
+
+
+def requires_platform(
+    *roles: PlatformRole, mfa_exempt: bool = False
+) -> Callable[..., PlatformPrincipal]:
+    """Declare the CareOS operator roles permitted to call a route.
+
+    The platform counterpart of :func:`requires`, and deliberately a separate function
+    rather than an extra argument to it. Two reasons, both structural:
+
+    * The two take different principal types. `requires` hands the handler a `Principal`
+      with an `agency_id`; this hands it a `PlatformPrincipal` that has none. A single
+      function returning a union would push a `hasattr` check into every handler.
+    * A route declares one or the other and can never accidentally declare both, so
+      "is this a tenant endpoint or a platform endpoint?" is answerable by reading one line,
+      and `route_access_map` can report it as control evidence.
+
+    **MFA is enforced unconditionally**, not behind `CAREOS_MFA_REQUIRED`. That flag exists
+    on the tenant side because switching it on turns every live privileged session into an
+    enrolment prompt, which is noise for a database seeded ten seconds ago. There is no
+    equivalent argument for the principal that can see every tenant's operational state and
+    take an agency offline, so there is no equivalent flag.
+
+    `mfa_exempt` is for the enrolment pair and for `/platform/me`, exactly as on the tenant
+    side: without it the requirement is unsatisfiable, since enrolling requires an
+    authenticated call made before enrolling.
+    """
+    if not roles:
+        raise ValueError("requires_platform() needs at least one role")
+    allowed = frozenset(roles)
+
+    def _dependency(request: Request) -> PlatformPrincipal:
+        principal = get_platform_principal(request)
+        if not mfa_exempt and not principal.mfa_satisfied:
+            raise MFAEnrolmentRequiredError(
+                "Platform operators must use multi-factor authentication. Finish enrolling "
+                "before using the operator console.",
+                details={"role": principal.role.value},
+            )
+        if principal.role not in allowed:
+            raise PermissionDeniedError(
+                "Your platform role is not permitted to perform this action",
+                details={"required_roles": sorted(r.value for r in allowed)},
+            )
+        # `platform_support` is read-only for the same reason `auditor` is, and enforced the
+        # same way: centrally on method, rather than by trusting every route that includes
+        # it to also be a GET.
+        if principal.role in PLATFORM_READ_ONLY_ROLES and request.method not in _SAFE_METHODS:
+            raise PermissionDeniedError(
+                "The platform support role is read-only",
+                details={"method": request.method},
+            )
+        return principal
+
+    setattr(_dependency, _PLATFORM_ROLES_ATTR, allowed)
     return _dependency
 
 
@@ -147,17 +223,28 @@ def _iter_route_specs(app: FastAPI) -> Iterator[_RouteSpec]:
                 )
 
 
-def _declared_roles(spec: _RouteSpec) -> frozenset[Role] | None:
-    """Roles declared on a route, or None if it declares nothing."""
+def _declared_access(spec: _RouteSpec) -> list[str] | None:
+    """The access labels declared on a route, or None if it declares nothing.
+
+    Returns the value `route_access_map` reports, so there is one function deciding both
+    "is this route declared?" and "what does it permit". An earlier shape had the startup
+    gate and the evidence dump reading the route separately, which is two chances to
+    disagree about a route that declares nothing.
+
+    An empty list means `public()` — declared, and open.
+    """
     for dependency in spec.dependant.dependencies:
         call = dependency.call
         if call is None:
             continue
         roles: frozenset[Role] | None = getattr(call, _ROLES_ATTR, None)
         if roles is not None:
-            return roles
+            return sorted(r.value for r in roles)
+        platform_roles: frozenset[PlatformRole] | None = getattr(call, _PLATFORM_ROLES_ATTR, None)
+        if platform_roles is not None:
+            return sorted(f"{PLATFORM_ACCESS_PREFIX}{r.value}" for r in platform_roles)
         if getattr(call, _PUBLIC_ATTR, False):
-            return frozenset()
+            return []
     return None
 
 
@@ -183,13 +270,14 @@ def assert_all_routes_declare_access(app: FastAPI) -> None:
     undeclared = sorted(
         f"{sorted(spec.methods)} {spec.path}"
         for spec in _iter_route_specs(app)
-        if _declared_roles(spec) is None
+        if _declared_access(spec) is None
     )
     if undeclared:
         raise RuntimeError(
             "Routes missing an access declaration: "
-            f"{undeclared}. Every route must declare Depends(requires(...)) or "
-            "Depends(public()) — see 08_Security_Architecture.md Section 1."
+            f"{undeclared}. Every route must declare Depends(requires(...)), "
+            "Depends(requires_platform(...)) or Depends(public()) — see "
+            "08_Security_Architecture.md Section 1."
         )
 
 
@@ -201,21 +289,24 @@ def route_access_map(app: FastAPI) -> dict[str, list[str]]:
     """
     access: dict[str, list[str]] = {}
     for spec in _iter_route_specs(app):
-        roles = _declared_roles(spec)
-        if roles is None:
+        declared = _declared_access(spec)
+        if declared is None:
             continue
-        value = sorted(r.value for r in roles) if roles else ["*public*"]
+        value = declared if declared else ["*public*"]
         for method in sorted(spec.methods):
             access[f"{method} {spec.path}"] = value
     return access
 
 
 __all__ = [
+    "PLATFORM_ACCESS_PREFIX",
     "Depends",
     "assert_all_routes_declare_access",
     "assert_route_discovery_is_working",
+    "get_platform_principal",
     "get_principal",
     "public",
     "requires",
+    "requires_platform",
     "route_access_map",
 ]

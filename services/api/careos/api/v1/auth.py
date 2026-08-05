@@ -23,7 +23,6 @@ from careos.db.session import privileged_session, tenant_session
 from careos.modules.agency import service as agency_service
 from careos.modules.agency.models import (
     MFA_ELIGIBLE_ROLES,
-    MFA_REQUIRED_ROLES,
     AppUser,
     Role,
 )
@@ -69,7 +68,7 @@ async def login(payload: schemas.LoginRequest) -> schemas.TokenPair:
             # single-use guarantees as comments.
             agency_service.assert_mfa_satisfied(user, code=payload.mfa_code)
             user_id, agency_id, role = user.id, user.agency_id, user.role
-            mfa_satisfied = user.mfa_enrolled or role not in MFA_REQUIRED_ROLES
+            mfa_satisfied = agency_service.mfa_satisfied_for(user)
     except MFAInvalidCodeError:
         # A valid password and a wrong code. Recorded: that is somebody guessing at the second
         # factor while holding the first, which is precisely what the audit trail is for.
@@ -131,6 +130,11 @@ async def refresh(payload: schemas.RefreshRequest) -> schemas.TokenPair:
             raise AccountInactiveError(
                 "This account has been disabled. Contact your agency administrator."
             )
+        # A tenant suspended by CareOS must not be able to roll its sessions forward. Without
+        # this, a refresh token issued before the suspension keeps minting fresh access
+        # tokens for the fortnight it is valid, and the suspension only takes effect when the
+        # last person happens to sign out.
+        await agency_service.assert_agency_usable(session, agency_id=user.agency_id)
         access, new_refresh = agency_service.issue_tokens(user, principal.caregiver_id)
     return schemas.TokenPair(
         access_token=access,
@@ -174,12 +178,11 @@ async def start_mfa_enrolment(
 ) -> schemas.MFAEnrolmentStarted:
     """Begin enrolling an authenticator for the calling user.
 
-    Three roles must enrol; every role that has a client able to *ask* for a code may. That
-    excludes `caregiver` today, and the exclusion is a guard rather than a policy: the
-    caregiver app has no field for a code, so a caregiver who enrolled through the API would
-    lock themselves out of the phone they clock in with — at a client's door, with no way to
-    fix it themselves. `08_Security_Architecture.md` Section 1 wants this extended to
-    schedulers next; that is a one-line change to `MFA_ELIGIBLE_ROLES` once the app catches up.
+    Four roles must enrol (`MFA_REQUIRED_ROLES`, including scheduler). Every role that has a
+    client able to *ask* for a code may enrol. That excludes `caregiver` today, and the
+    exclusion is a guard rather than a policy: the caregiver app has no field for a code, so a
+    caregiver who enrolled through the API would lock themselves out of the phone they clock
+    in with — at a client's door, with no way to fix it themselves.
 
     `mfa_exempt` because this is the endpoint an unenrolled privileged user must reach in
     order to stop being unenrolled. It is one of exactly two routes with that exemption.

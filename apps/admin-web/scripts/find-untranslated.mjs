@@ -19,8 +19,12 @@
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+// `fileURLToPath`, not `URL.pathname`. The latter yields `/C:/…` on Windows and leaves
+// `%20` in place of every space, so the walk below failed with ENOENT on a path that plainly
+// existed — and the CI job, which runs on Linux, could never have caught it.
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SRC = join(ROOT, "src");
 
 /** Props whose values are rendered to a person. */

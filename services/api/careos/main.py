@@ -20,12 +20,17 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
-from careos.api.deps import authenticate, enforce_session_revocation
+from careos.api.deps import (
+    authenticate,
+    enforce_platform_session_revocation,
+    enforce_session_revocation,
+)
 from careos.api.v1 import (
     agencies,
     auth,
     caregivers,
     clients,
+    platform,
     recruiting,
     visits,
     webhooks,
@@ -49,6 +54,7 @@ from careos.core.ratelimit import (
     tier_for,
 )
 from careos.core.rbac import assert_all_routes_declare_access, public
+from careos.core.security import PlatformPrincipal
 from careos.db.models import assert_every_table_is_classified
 from careos.db.session import dispose_engines
 
@@ -126,7 +132,13 @@ def create_app() -> FastAPI:
                     None if request.url.path == METRICS_PATH else await authenticate(request)
                 )
                 decision = await _apply_rate_limit(request, principal, source_ip)
-                if principal is not None:
+                # Both principal kinds get a revocation check, on their own pool and against
+                # their own watermark. Offboarding a CareOS operator matters at least as much
+                # as offboarding a caregiver: the account being cut off can see every
+                # tenant's operational state and can take an agency offline.
+                if isinstance(principal, PlatformPrincipal):
+                    await enforce_platform_session_revocation(principal)
+                elif principal is not None:
                     await enforce_session_revocation(principal)
             except RateLimitExceededError as exc:
                 metrics.rate_limit_refusals_total.labels(
@@ -234,6 +246,10 @@ def create_app() -> FastAPI:
     v1.include_router(agencies.router)
     v1.include_router(caregivers.router)
     v1.include_router(clients.router)
+    # The CareOS-global operator surface. Under `/v1` like everything else, so it shares the
+    # error envelope, the request-context middleware, and the commit boundary — but on its
+    # own principal type, its own database role, and its own prefix.
+    v1.include_router(platform.router)
     v1.include_router(recruiting.router)
     v1.include_router(visits.router)
     v1.include_router(webhooks.router)
@@ -392,7 +408,11 @@ async def _apply_rate_limit(
         # dead Redis from costing even that more than once, and it is one hop among several
         # database round trips the handler makes anyway. Revisit if it ever shows up in the
         # clock-in latency rather than on the strength of the argument.
-        await limiter.note_evv_volume(
+        #
+        # The boolean lands on `request.state` so the clock-in/out handler can open a compliance
+        # exception after the EVV write — middleware has no tenant session yet, and the action
+        # must not be refused for this reason either way.
+        anomalous = await limiter.note_evv_volume(
             agency_id=str(agency_id) if agency_id else None,
             caregiver_id=(
                 str(getattr(principal, "caregiver_id", None))
@@ -400,6 +420,7 @@ async def _apply_rate_limit(
                 else None
             ),
         )
+        request.state.evv_volume_anomalous = anomalous
 
     decision = await limiter.check(
         tier=tier,

@@ -16,7 +16,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,6 +42,33 @@ from careos.modules.scheduling.models import (
     TransmissionStatus,
     VisitStatus,
 )
+
+
+async def _maybe_raise_volume_anomaly(
+    request: Request,
+    session: AsyncSession,
+    *,
+    principal: Principal,
+    visit: ScheduledVisit,
+) -> None:
+    """Open an exception when middleware flagged this clock action as anomalous volume.
+
+    Lives next to the EVV write so it shares the request's transaction: a failed commit rolls
+    the exception back with the clock-in, and a successful one surfaces both together. The
+    visit's assigned caregiver is the entity — that is who a scheduler needs to investigate —
+    even when the volume counter was keyed on the agency (an admin token with no caregiver_id).
+    """
+    if not getattr(request.state, "evv_volume_anomalous", False):
+        return
+    if visit.caregiver_id is None:
+        return
+    await scheduling_service.raise_evv_volume_anomaly(
+        session,
+        principal=principal,
+        caregiver_id=visit.caregiver_id,
+        agency_id=visit.agency_id,
+        visit_id=visit.id,
+    )
 
 router = APIRouter(tags=["visits"])
 
@@ -304,6 +331,7 @@ async def assign(
 async def clock_in(
     visit_id: uuid.UUID,
     payload: schemas.ClockInRequest,
+    request: Request,
     principal: Principal = Depends(requires(Role.caregiver, Role.scheduler, Role.owner_admin)),
     session: AsyncSession = Depends(db_session),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
@@ -329,6 +357,9 @@ async def clock_in(
         lng=payload.geo.lng if payload.geo else None,
         client_local_uuid=payload.client_local_uuid,
     )
+    await _maybe_raise_volume_anomaly(
+        request, session, principal=principal, visit=visit
+    )
 
     body = _evv_status_out(record)
     assert outcome.record is not None
@@ -342,6 +373,7 @@ async def clock_in(
 async def clock_out(
     visit_id: uuid.UUID,
     payload: schemas.ClockOutRequest,
+    request: Request,
     principal: Principal = Depends(requires(Role.caregiver, Role.scheduler, Role.owner_admin)),
     session: AsyncSession = Depends(db_session),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
@@ -371,6 +403,9 @@ async def clock_out(
         lat=payload.geo.lat if payload.geo else None,
         lng=payload.geo.lng if payload.geo else None,
         client_local_uuid=payload.client_local_uuid,
+    )
+    await _maybe_raise_volume_anomaly(
+        request, session, principal=principal, visit=visit
     )
 
     findings = await scheduling_service.evaluate_visit_compliance(

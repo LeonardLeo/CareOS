@@ -137,6 +137,7 @@ async def test_two_instances_share_one_budget(redis_store: RedisRateLimitStore) 
         auth_per_minute=99,
         auth_per_ip_per_minute=99,
         evv_anomaly_per_minute=99,
+        signup_per_hour=99,
     )
     second_client = Redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
     second_store = RedisRateLimitStore(second_client)
@@ -308,6 +309,7 @@ async def test_the_middleware_enforces_the_shared_limit(
         auth_per_minute=1_000_000,
         auth_per_ip_per_minute=1_000_000,
         evv_anomaly_per_minute=1_000_000,
+        signup_per_hour=1_000_000,
     )
     headers = tenant_a.headers(Role.owner_admin)
 
@@ -352,6 +354,7 @@ async def test_clock_in_is_never_throttled_on_the_shared_store(
         auth_per_minute=1_000_000,
         auth_per_ip_per_minute=1_000_000,
         evv_anomaly_per_minute=1,
+        signup_per_hour=1_000_000,
     )
     assert (await client.get("/v1/clients", headers=headers)).status_code == 200
     assert (await client.get("/v1/clients", headers=headers)).status_code == 429
